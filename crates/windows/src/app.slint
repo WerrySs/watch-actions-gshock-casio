@@ -1,0 +1,658 @@
+import { AboutSlint, Button, ComboBox, HorizontalBox, LineEdit, ScrollView, VerticalBox } from "std-widgets.slint";
+
+export struct ActionRow {
+    code: string,
+    title: string,
+    detail: string,
+    action: string,
+    kind-index: int,
+    value: string,
+    needs-value: bool,
+    hint: string,
+}
+
+export struct WatchRow {
+    id: string,
+    name: string,
+    model: string,
+    detail: string,
+    favorite: bool,
+    trusted: bool,
+    can-trust: bool,
+}
+
+export struct HistoryRow {
+    when: string,
+    title: string,
+    detail: string,
+    outcome: string,
+}
+
+export struct ReminderRow {
+    slot: string,
+    title: string,
+    schedule: string,
+    enabled: bool,
+}
+
+export struct AlarmRow {
+    number: string,
+    time: string,
+    detail: string,
+    enabled: bool,
+}
+
+export struct SettingRow {
+    label: string,
+    value: string,
+}
+
+component NavigationItem inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> selected;
+    callback activated;
+
+    height: 46px;
+    border-radius: 10px;
+    background: selected ? #1769df : touch.has-hover ? #ffffff10 : transparent;
+
+    HorizontalBox {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        alignment: start;
+
+        Text {
+            text: root.icon;
+            color: selected ? white : #aeb8c7;
+            font-size: 16px;
+            vertical-alignment: center;
+            width: 24px;
+        }
+        Text {
+            text: root.label;
+            color: selected ? white : #edf1f7;
+            font-size: 14px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea { clicked => { root.activated(); } }
+}
+
+component PageHeading inherits VerticalBox {
+    in property <string> eyebrow;
+    in property <string> title;
+    in property <string> detail;
+
+    spacing: 4px;
+    Text { text: root.eyebrow; color: #8692a4; font-size: 11px; font-weight: 700; }
+    Text { text: root.title; color: #f5f7fb; font-size: 27px; font-weight: 750; }
+    Text { text: root.detail; color: #aab4c3; font-size: 14px; wrap: word-wrap; }
+}
+
+component MetricCard inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> value;
+
+    min-height: 108px;
+    background: #ffffff0b;
+    border-color: #ffffff16;
+    border-width: 1px;
+    border-radius: 14px;
+
+    VerticalBox {
+        padding: 18px;
+        spacing: 9px;
+        HorizontalBox {
+            spacing: 9px;
+            Text { text: root.icon; color: #4b9dff; font-size: 17px; }
+            Text { text: root.label; color: #aeb8c7; font-size: 13px; font-weight: 600; }
+        }
+        Text { text: root.value; color: #f4f7fb; font-size: 22px; font-weight: 700; overflow: elide; }
+    }
+}
+
+component StatusPill inherits Rectangle {
+    in property <string> text;
+    height: 36px;
+    min-width: 230px;
+    border-radius: 18px;
+    background: #ffffff0c;
+    border-color: #ffffff16;
+    border-width: 1px;
+    Text {
+        text: "●  " + root.text;
+        color: #f4a340;
+        font-size: 12px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+component ActionCard inherits Rectangle {
+    in property <ActionRow> action-row;
+    in property <[string]> action-options;
+    callback test-action(string);
+    callback change-action(string, int, string);
+    callback change-value(string, string);
+
+    height: 326px;
+    background: #ffffff0b;
+    border-color: #ffffff18;
+    border-width: 1px;
+    border-radius: 14px;
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 12px;
+
+        HorizontalBox {
+            height: 94px;
+            spacing: 12px;
+            alignment: start;
+            Rectangle {
+                width: 64px;
+                height: 34px;
+                border-radius: 8px;
+                background: #2176ed30;
+                Text {
+                    text: root.action-row.code;
+                    color: #4b9dff;
+                    font-size: 14px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            VerticalBox {
+                spacing: 5px;
+                Text {
+                    text: root.action-row.title;
+                    color: #f4f7fb;
+                    font-size: 17px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: root.action-row.detail;
+                    color: #aeb8c7;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            Button {
+                text: "Test";
+                enabled: root.action-row.kind-index != 0;
+                clicked => { root.test-action(root.action-row.code); }
+            }
+        }
+
+        Text { text: "Computer action"; color: #8792a3; font-size: 12px; font-weight: 600; }
+        action-picker := ComboBox {
+            model: root.action-options;
+            current-index: root.action-row.kind-index;
+            selected(value) => {
+                root.change-action(root.action-row.code, self.current-index, root.action-row.value);
+            }
+        }
+
+        Rectangle {
+            height: 60px;
+            background: transparent;
+            if root.action-row.needs-value : VerticalBox {
+                spacing: 5px;
+                Text { text: "Action value"; color: #8792a3; font-size: 11px; font-weight: 600; }
+                value-input := LineEdit {
+                    text: root.action-row.value;
+                    placeholder-text: "Enter a safe value";
+                    accepted => { root.change-value(root.action-row.code, self.text); }
+                }
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; background: transparent; }
+        Text {
+            text: root.action-row.hint;
+            color: #8792a3;
+            font-size: 11px;
+            wrap: word-wrap;
+            height: 32px;
+        }
+    }
+}
+
+component WatchListCard inherits Rectangle {
+    in property <WatchRow> watch;
+    callback make-favorite(string);
+    callback toggle-trust(string);
+
+    height: 122px;
+    background: #ffffff0b;
+    border-color: watch.favorite ? #3488f055 : #ffffff18;
+    border-width: 1px;
+    border-radius: 14px;
+
+    HorizontalBox {
+        padding: 18px;
+        spacing: 16px;
+        Rectangle {
+            width: 64px;
+            height: 64px;
+            border-radius: 13px;
+            background: #1769df24;
+            Image { source: @image-url("../watch-guide.png"); image-fit: contain; }
+        }
+        VerticalBox {
+            spacing: 4px;
+            Text { text: root.watch.name; color: #f5f7fb; font-size: 17px; font-weight: 700; overflow: elide; }
+            Text { text: root.watch.model; color: #4b9dff; font-size: 12px; font-weight: 650; }
+            Text { text: root.watch.detail; color: #96a1b1; font-size: 11px; overflow: elide; }
+        }
+        Button {
+            text: root.watch.favorite ? "Favorite" : "Make favorite";
+            enabled: !root.watch.favorite;
+            clicked => { root.make-favorite(root.watch.id); }
+        }
+        Button {
+            text: root.watch.trusted ? "Actions allowed" : "Actions blocked";
+            enabled: root.watch.can-trust;
+            clicked => { root.toggle-trust(root.watch.id); }
+        }
+    }
+}
+
+component DataListCard inherits Rectangle {
+    in property <string> badge;
+    in property <string> title;
+    in property <string> detail;
+    in property <string> trailing;
+    in property <bool> active;
+
+    height: 82px;
+    background: #ffffff0b;
+    border-color: #ffffff16;
+    border-width: 1px;
+    border-radius: 12px;
+    HorizontalBox {
+        padding: 16px;
+        spacing: 14px;
+        Rectangle {
+            width: 48px;
+            height: 32px;
+            border-radius: 8px;
+            background: active ? #2176ed30 : #ffffff0c;
+            Text { text: root.badge; color: active ? #4b9dff : #9ba6b5; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        VerticalBox {
+            spacing: 4px;
+            Text { text: root.title; color: #f3f6fa; font-size: 15px; font-weight: 650; overflow: elide; }
+            Text { text: root.detail; color: #98a3b3; font-size: 11px; overflow: elide; }
+        }
+        Text { text: root.trailing; color: active ? #56a0ff : #98a3b3; font-size: 12px; font-weight: 650; vertical-alignment: center; }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "WatchBridge";
+    width: 1240px;
+    height: 780px;
+    background: transparent;
+
+    in-out property <int> selected-navigation: 0;
+    in-out property <string> new-watch-model: "GW-B5600";
+    in-out property <string> new-watch-nickname: "";
+    in property <string> watch-name: "Add or connect a watch";
+    in property <string> watch-model: "GW-B5600";
+    in property <string> status-text: "Waiting for the watch";
+    in property <string> battery-text: "—";
+    in property <string> temperature-text: "—";
+    in property <string> city-text: "—";
+    in property <string> timer-text: "—";
+    in property <string> last-connection-text: "Not connected yet";
+    in property <string> watch-count-text: "0 saved watches";
+    in property <string> history-count-text: "0 saved sessions";
+    in property <string> last-action-text: "No action has run in this session";
+    in property <[ActionRow]> action-rows;
+    in property <[WatchRow]> watch-rows;
+    in property <[HistoryRow]> history-rows;
+    in property <[ReminderRow]> reminder-rows;
+    in property <[AlarmRow]> alarm-rows;
+    in property <[SettingRow]> settings-rows;
+    in property <[string]> action-options: [
+        "Do nothing",
+        "Find this computer",
+        "Speak a phrase",
+        "Open a web link",
+        "Open an application",
+        "Lock the screen",
+        "Toggle mute",
+        "Play or pause media",
+    ];
+
+    callback select-navigation(int);
+    callback register-watch(string, string);
+    callback make-favorite(string);
+    callback toggle-trust(string);
+    callback change-action(string, int, string);
+    callback change-action-value(string, string);
+    callback test-action(string);
+    callback scan-now;
+    callback disconnect;
+
+    HorizontalBox {
+        spacing: 0px;
+
+        Rectangle {
+            width: 236px;
+            background: #0c1119e8;
+            border-color: #ffffff12;
+            border-width: 1px;
+
+            VerticalBox {
+                padding: 18px;
+                spacing: 7px;
+
+                HorizontalBox {
+                    height: 54px;
+                    spacing: 11px;
+                    Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 10px;
+                        background: #2176ed;
+                        Text { text: "W"; color: white; font-size: 16px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    Text { text: "WatchBridge"; color: #f5f7fb; font-size: 17px; font-weight: 700; vertical-alignment: center; }
+                }
+
+                Text { text: "WATCH"; color: #6f7b8e; font-size: 11px; font-weight: 700; }
+                NavigationItem { icon: "◫"; label: "Dashboard"; selected: root.selected-navigation == 0; activated => { root.select-navigation(0); } }
+                NavigationItem { icon: "◇"; label: "My watches"; selected: root.selected-navigation == 1; activated => { root.select-navigation(1); } }
+                NavigationItem { icon: "✓"; label: "Reminders"; selected: root.selected-navigation == 2; activated => { root.select-navigation(2); } }
+                NavigationItem { icon: "◷"; label: "Alarms"; selected: root.selected-navigation == 3; activated => { root.select-navigation(3); } }
+                NavigationItem { icon: "≡"; label: "Watch settings"; selected: root.selected-navigation == 4; activated => { root.select-navigation(4); } }
+                Rectangle { height: 8px; background: transparent; }
+                Text { text: "COMPUTER"; color: #6f7b8e; font-size: 11px; font-weight: 700; }
+                NavigationItem { icon: "ϟ"; label: "Actions"; selected: root.selected-navigation == 5; activated => { root.select-navigation(5); } }
+                NavigationItem { icon: "☷"; label: "Connection history"; selected: root.selected-navigation == 6; activated => { root.select-navigation(6); } }
+                NavigationItem { icon: "ⓘ"; label: "About"; selected: root.selected-navigation == 7; activated => { root.select-navigation(7); } }
+                Rectangle { vertical-stretch: 1; background: transparent; }
+
+                Rectangle {
+                    height: 86px;
+                    background: #ffffff09;
+                    border-radius: 12px;
+                    border-color: #ffffff12;
+                    border-width: 1px;
+                    VerticalBox {
+                        padding: 12px;
+                        spacing: 3px;
+                        Text { text: root.watch-name; color: #f1f4f8; font-size: 13px; font-weight: 650; overflow: elide; }
+                        Text { text: root.watch-model; color: #8f9bad; font-size: 11px; overflow: elide; }
+                        Text { text: "●  " + root.status-text; color: #f4a340; font-size: 10px; overflow: elide; }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            background: @linear-gradient(125deg, #17202ae8 0%, #16191fe8 48%, #28191de8 100%);
+            horizontal-stretch: 1;
+
+            if root.selected-navigation == 0 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 20px;
+
+                    HorizontalBox {
+                        PageHeading { eyebrow: "DASHBOARD"; title: "Your watch at a glance"; detail: root.status-text; }
+                        Button { text: "Scan now"; clicked => { root.scan-now(); } }
+                        Button { text: "Disconnect"; clicked => { root.disconnect(); } }
+                    }
+
+                    HorizontalBox {
+                        spacing: 24px;
+                        Rectangle {
+                            min-width: 390px;
+                            horizontal-stretch: 5;
+                            min-height: 595px;
+                            background: #ffffff08;
+                            border-color: #ffffff13;
+                            border-width: 1px;
+                            border-radius: 18px;
+                            VerticalBox {
+                                padding: 22px;
+                                spacing: 14px;
+                                Image { source: @image-url("../watch-guide.png"); image-fit: contain; horizontal-stretch: 1; vertical-stretch: 1; }
+                                Text { text: root.watch-name; color: #f6f8fb; font-size: 22px; font-weight: 750; horizontal-alignment: center; }
+                                Text { text: root.watch-model; color: #9ca7b7; font-size: 13px; horizontal-alignment: center; }
+                                HorizontalBox { height: 38px; alignment: center; StatusPill { text: root.status-text; } }
+                            }
+                        }
+
+                        VerticalBox {
+                            horizontal-stretch: 6;
+                            spacing: 14px;
+                            HorizontalBox {
+                                spacing: 14px;
+                                MetricCard { icon: "▰"; label: "Battery"; value: root.battery-text; }
+                                MetricCard { icon: "♨"; label: "Temperature"; value: root.temperature-text; }
+                            }
+                            HorizontalBox {
+                                spacing: 14px;
+                                MetricCard { icon: "◎"; label: "Home city"; value: root.city-text; }
+                                MetricCard { icon: "◷"; label: "Timer"; value: root.timer-text; }
+                            }
+                            HorizontalBox {
+                                spacing: 14px;
+                                MetricCard { icon: "◉"; label: "Last connection"; value: root.last-connection-text; }
+                                MetricCard { icon: "ϟ"; label: "Last computer action"; value: root.last-action-text; }
+                            }
+                            Rectangle {
+                                min-height: 190px;
+                                vertical-stretch: 1;
+                                background: #ffffff08;
+                                border-color: #ffffff13;
+                                border-width: 1px;
+                                border-radius: 14px;
+                                VerticalBox {
+                                    padding: 20px;
+                                    spacing: 10px;
+                                    Text { text: "WATCH BUTTONS"; color: #8290a3; font-size: 11px; font-weight: 700; }
+                                    Text { text: "C · hold 3 seconds for CNCT"; color: #eef2f7; font-size: 14px; font-weight: 650; }
+                                    Text { text: "D · tap for TIME · hold 5 seconds for FIND"; color: #b2bcc9; font-size: 13px; wrap: word-wrap; }
+                                    Text { text: "A and B only control the watch itself."; color: #8792a3; font-size: 11px; }
+                                    Rectangle { vertical-stretch: 1; background: transparent; }
+                                    Button { text: "Open action settings"; clicked => { root.select-navigation(5); } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.selected-navigation == 1 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 18px;
+                    PageHeading { eyebrow: "LOCAL COLLECTION"; title: "My watches"; detail: root.watch-count-text + " · the favorite stays on the Dashboard"; }
+                    Rectangle {
+                        height: 150px;
+                        background: #ffffff0b;
+                        border-color: #ffffff18;
+                        border-width: 1px;
+                        border-radius: 14px;
+                        VerticalBox {
+                            padding: 18px;
+                            spacing: 10px;
+                            Text { text: "Register a watch before pairing"; color: #f4f7fb; font-size: 17px; font-weight: 700; }
+                            Text { text: "Enter any exact model reference. The physical watch will be matched on its first compatible connection."; color: #9ca7b7; font-size: 12px; }
+                            HorizontalBox {
+                                spacing: 10px;
+                                LineEdit { text <=> root.new-watch-model; placeholder-text: "Exact model, for example GW-B5600BP-1"; }
+                                LineEdit { text <=> root.new-watch-nickname; placeholder-text: "Nickname (optional)"; }
+                                Button {
+                                    text: "Add watch";
+                                    enabled: !root.new-watch-model.is-empty;
+                                    clicked => {
+                                        root.register-watch(root.new-watch-model, root.new-watch-nickname);
+                                        root.new-watch-nickname = "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if root.watch-rows.length == 0 : Rectangle {
+                        height: 150px;
+                        background: #ffffff08;
+                        border-radius: 14px;
+                        Text { text: "No saved watches yet. Add one above or connect a compatible watch."; color: #9da8b7; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    for watch in root.watch-rows : WatchListCard {
+                        watch: watch;
+                        make-favorite(id) => { root.make-favorite(id); }
+                        toggle-trust(id) => { root.toggle-trust(id); }
+                    }
+                    Text { text: "Computer actions stay blocked until a physical watch has connected and you explicitly allow it."; color: #8792a3; font-size: 11px; }
+                }
+            }
+
+            if root.selected-navigation == 2 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 14px;
+                    PageHeading { eyebrow: "REMINDERS"; title: "Saved on the selected watch"; detail: "Cached values remain visible while the watch is disconnected."; }
+                    if root.reminder-rows.length == 0 : DataListCard { badge: "—"; title: "No cached reminders"; detail: "Connect using CNCT to read all reminder slots."; trailing: "Waiting"; }
+                    for reminder in root.reminder-rows : DataListCard {
+                        badge: reminder.slot;
+                        title: reminder.title;
+                        detail: reminder.schedule;
+                        trailing: reminder.enabled ? "Enabled" : "Disabled";
+                        active: reminder.enabled;
+                    }
+                }
+            }
+
+            if root.selected-navigation == 3 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 14px;
+                    PageHeading { eyebrow: "ALARMS"; title: "Five watch alarm slots"; detail: "The last synchronized state is kept locally."; }
+                    if root.alarm-rows.length == 0 : DataListCard { badge: "—"; title: "No cached alarms"; detail: "Connect using CNCT to read all alarm slots."; trailing: "Waiting"; }
+                    for alarm in root.alarm-rows : DataListCard {
+                        badge: alarm.number;
+                        title: alarm.time;
+                        detail: alarm.detail;
+                        trailing: alarm.enabled ? "Enabled" : "Disabled";
+                        active: alarm.enabled;
+                    }
+                }
+            }
+
+            if root.selected-navigation == 4 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 14px;
+                    PageHeading { eyebrow: "WATCH SETTINGS"; title: "Last synchronized configuration"; detail: "WatchBridge keeps a local snapshot so it does not need to reconnect just to display these values."; }
+                    for setting in root.settings-rows : DataListCard { badge: "✓"; title: setting.label; detail: "Saved locally"; trailing: setting.value; active: true; }
+                }
+            }
+
+            if root.selected-navigation == 5 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 18px;
+                    HorizontalBox {
+                        PageHeading { eyebrow: "ACTIONS"; title: "What each watch gesture does"; detail: "Only trusted physical watches may run computer actions. Test is always manual."; }
+                        Image { width: 90px; height: 100px; source: @image-url("../watch-guide.png"); image-fit: contain; }
+                    }
+                    HorizontalBox {
+                        spacing: 14px;
+                        for row[index] in root.action-rows : ActionCard {
+                            action-row: row;
+                            action-options: root.action-options;
+                            visible: index < 2;
+                            horizontal-stretch: index < 2 ? 1 : 0;
+                            test-action(code) => { root.test-action(code); }
+                            change-action(code, selected, value) => { root.change-action(code, selected, value); }
+                            change-value(code, value) => { root.change-action-value(code, value); }
+                        }
+                    }
+                    HorizontalBox {
+                        spacing: 14px;
+                        for row[index] in root.action-rows : ActionCard {
+                            action-row: row;
+                            action-options: root.action-options;
+                            visible: index >= 2;
+                            horizontal-stretch: index >= 2 ? 1 : 0;
+                            test-action(code) => { root.test-action(code); }
+                            change-action(code, selected, value) => { root.change-action(code, selected, value); }
+                            change-value(code, value) => { root.change-action-value(code, value); }
+                        }
+                    }
+                }
+            }
+
+            if root.selected-navigation == 6 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 14px;
+                    PageHeading { eyebrow: "HISTORY"; title: "Connection history"; detail: root.history-count-text + " · stored only on this computer"; }
+                    if root.history-rows.length == 0 : DataListCard { badge: "—"; title: "No connections yet"; detail: "Completed sessions will appear here with their cached watch state."; trailing: "Waiting"; }
+                    for session in root.history-rows : DataListCard {
+                        badge: session.outcome == "Completed" ? "✓" : "!";
+                        title: session.title;
+                        detail: session.when + " · " + session.detail;
+                        trailing: session.outcome;
+                        active: session.outcome == "Completed";
+                    }
+                }
+            }
+
+            if root.selected-navigation == 7 : ScrollView {
+                viewport-width: self.width;
+                VerticalBox {
+                    padding: 28px;
+                    spacing: 18px;
+                    PageHeading { eyebrow: "ABOUT"; title: "WatchBridge"; detail: "Independent, local-first software for compatible Bluetooth watch buttons."; }
+                    Rectangle {
+                        height: 180px;
+                        background: #ffffff0b;
+                        border-color: #ffffff18;
+                        border-width: 1px;
+                        border-radius: 14px;
+                        VerticalBox {
+                            padding: 18px;
+                            spacing: 10px;
+                            Text { text: "Unofficial community project"; color: #f4f7fb; font-size: 17px; font-weight: 700; }
+                            Text { text: "WatchBridge is not affiliated with, authorized by, sponsored by, endorsed by, or supported by Casio Computer Co., Ltd. Brand names are used only to describe compatibility."; color: #aab4c3; font-size: 13px; wrap: word-wrap; }
+                            Text { text: "No account, analytics, advertising, cloud upload, or arbitrary command execution."; color: #65a8ff; font-size: 12px; font-weight: 650; wrap: word-wrap; }
+                        }
+                    }
+                    Rectangle {
+                        height: 118px;
+                        background: #ffffff0b;
+                        border-color: #ffffff18;
+                        border-width: 1px;
+                        border-radius: 14px;
+                        AboutSlint { }
+                    }
+                    Text { text: "Source code: github.com/WerrySs/watchbridge · MIT License"; color: #8792a3; font-size: 11px; }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,35 @@
+# Rust
+/target/
+
+# Swift Package Manager and Xcode
+/.build/
+/apps/macos/.build/
+/apps/macos/.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Generated native libraries and release packages
+/apps/macos/Libraries/
+/dist/
+
+# Local application data, logs, and secrets
+.env
+.env.*
+!.env.example
+*.log
+*.p12
+*.pfx
+*.cer
+*.mobileprovision
+AuthKey_*.p8
+
+# WorkOS is local-only project memory
+/.ai/
+/.workos/
+
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

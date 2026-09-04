@@ -1,0 +1,9 @@
+* text=auto eol=lf
+apps/macos/Sources/CWatchBridge/** linguist-generated=true
+*.swift text diff=swift
+*.rs text
+*.slint text
+*.png binary
+*.ico binary
+*.h linguist-detectable=false
+Cargo.lock -diff

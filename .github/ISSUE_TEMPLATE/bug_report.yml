@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible WatchBridge problem
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Remove watch identifiers, personal reminder content, credentials, and other sensitive data before submitting.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: WatchBridge version
+      placeholder: 0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating-system version
+      placeholder: macOS 15.6 or Windows 11 24H2
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Exact watch model
+      description: Do not include a serial number or Bluetooth identifier.
+      placeholder: GW-B5600 family
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: Tell us what you did, what happened, and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only relevant, non-sensitive lines from Connection History.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed device identifiers, personal content, credentials, and secrets.
+          required: true
+        - label: I reproduced this with the latest available build.
+          required: true

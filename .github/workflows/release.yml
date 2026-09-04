@@ -1,0 +1,303 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to package without publishing
+        required: true
+        default: "0.1.0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  metadata:
+    name: Validate version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_tag: ${{ steps.version.outputs.is_tag }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate release metadata
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            is_tag=true
+          else
+            version="$INPUT_VERSION"
+            is_tag=false
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid semantic version: $version" >&2
+            exit 1
+          fi
+          workspace_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "watchbridge-core") | .version')"
+          if [[ "$version" != "$workspace_version" ]]; then
+            echo "Tag/input version $version does not match workspace version $workspace_version." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "is_tag=$is_tag" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: Package macOS
+    needs: metadata
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+      notarized: ${{ steps.notarize.outputs.notarized }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-native-
+      - name: Select Xcode 26.3
+        run: sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Import Developer ID certificate when configured
+        id: signing
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "signed=false" >> "$GITHUB_OUTPUT"
+          echo "WATCHBRIDGE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+          if [[ -z "$CERTIFICATE_BASE64" || -z "$CERTIFICATE_PASSWORD" ]]; then
+            echo "Developer ID secrets are not configured; producing an ad-hoc-signed review artifact."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/watchbridge-signing.keychain-db"
+          certificate="$RUNNER_TEMP/watchbridge-signing.p12"
+          keychain_password="$(uuidgen)$(uuidgen)"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -1)"
+          if [[ -z "$identity" ]]; then
+            echo "The certificate does not contain a Developer ID Application identity." >&2
+            exit 1
+          fi
+          rm -f "$certificate"
+          echo "WATCHBRIDGE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "WATCHBRIDGE_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+      - name: Build universal macOS artifacts
+        env:
+          WATCHBRIDGE_BUILD_NUMBER: ${{ github.run_number }}
+          WATCHBRIDGE_UNIVERSAL: "1"
+        run: cargo xtask package-macos "${{ needs.metadata.outputs.version }}"
+      - name: Notarize and staple when configured
+        id: notarize
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "notarized=false" >> "$GITHUB_OUTPUT"
+          if [[ "$SIGNED" != "true" || -z "$APPLE_ID" || -z "$APPLE_ID_PASSWORD" || -z "$APPLE_TEAM_ID" ]]; then
+            echo "Notary secrets are not fully configured; skipping notarization for this review artifact."
+            exit 0
+          fi
+          app="dist/macos/WatchBridge.app"
+          dmg="dist/macos/WatchBridge-v${VERSION}-macOS-universal.dmg"
+          zip="dist/macos/WatchBridge-v${VERSION}-macOS-universal.zip"
+          sums="dist/macos/WatchBridge-v${VERSION}-macOS.sha256"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$app"
+          xcrun stapler staple "$dmg"
+          rm -f "$zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+          (
+            cd dist/macos
+            shasum -a 256 "$(basename "$zip")" "$(basename "$dmg")" > "$(basename "$sums")"
+          )
+          codesign --verify --deep --strict "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: watchbridge-macos-${{ needs.metadata.outputs.version }}
+          path: |
+            dist/macos/*.dmg
+            dist/macos/*.zip
+            dist/macos/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove temporary keychain
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${WATCHBRIDGE_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$WATCHBRIDGE_KEYCHAIN" || true
+          fi
+
+  windows:
+    name: Package Windows
+    needs: metadata
+    runs-on: windows-2022
+    timeout-minutes: 60
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-native-
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Build Windows client
+        run: cargo build --locked --release --package watchbridge-windows
+      - name: Stage Windows application
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $folder = "dist/windows/WatchBridge-v$env:VERSION-Windows-x64"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item "target/release/watchbridge-windows.exe" "$folder/WatchBridge.exe"
+          Copy-Item "LICENSE" "$folder/LICENSE.txt"
+          Copy-Item "README.md" "$folder/README.md"
+      - name: Sign Windows executable when configured
+        id: signing
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          "signed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          if ([string]::IsNullOrWhiteSpace($env:CERTIFICATE_BASE64) -or [string]::IsNullOrWhiteSpace($env:CERTIFICATE_PASSWORD)) {
+            Write-Host "Authenticode secrets are not configured; producing an unsigned review artifact."
+            exit 0
+          }
+          $certificate = Join-Path $env:RUNNER_TEMP "watchbridge-signing.pfx"
+          [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+          $executable = "dist/windows/WatchBridge-v$env:VERSION-Windows-x64/WatchBridge.exe"
+          $signtool = (Get-Command signtool.exe -ErrorAction Stop).Source
+          & $signtool sign /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /f $certificate /p $env:CERTIFICATE_PASSWORD $executable
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
+          & $signtool verify /pa /v $executable
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed." }
+          Remove-Item $certificate -Force
+          "signed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Create Windows archive and checksum
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $folder = "dist/windows/WatchBridge-v$env:VERSION-Windows-x64"
+          $archive = "dist/windows/WatchBridge-v$env:VERSION-Windows-x64.zip"
+          Compress-Archive -Path "$folder/*" -DestinationPath $archive -CompressionLevel Optimal -Force
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $archive)" | Set-Content "dist/windows/WatchBridge-v$env:VERSION-Windows-x64.sha256" -Encoding ascii
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: watchbridge-windows-${{ needs.metadata.outputs.version }}
+          path: |
+            dist/windows/*.zip
+            dist/windows/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish signed release
+    if: needs.metadata.outputs.is_tag == 'true'
+    needs: [metadata, macos, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Require signed native applications
+        shell: bash
+        env:
+          MACOS_SIGNED: ${{ needs.macos.outputs.signed }}
+          MACOS_NOTARIZED: ${{ needs.macos.outputs.notarized }}
+          WINDOWS_SIGNED: ${{ needs.windows.outputs.signed }}
+        run: |
+          set -euo pipefail
+          if [[ "$MACOS_SIGNED" != "true" || "$MACOS_NOTARIZED" != "true" || "$WINDOWS_SIGNED" != "true" ]]; then
+            echo "Stable releases require Developer ID signing, Apple notarization, and Authenticode signing." >&2
+            exit 1
+          fi
+      - name: Download native artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          for checksum in *.sha256; do
+            sha256sum --check "$checksum"
+          done
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/*.dmg dist/*.zip dist/*.sha256 \
+            --verify-tag \
+            --generate-notes \
+            --title "WatchBridge $VERSION"

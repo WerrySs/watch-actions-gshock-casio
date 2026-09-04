@@ -1,0 +1,4 @@
+module CWatchBridge {
+    header "include/watchbridge_core.h"
+    export *
+}

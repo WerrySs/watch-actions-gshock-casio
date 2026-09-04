@@ -1,0 +1,36 @@
+[package]
+name = "watchbridge-windows"
+publish = false
+description = "Native Windows desktop client for WatchBridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+btleplug = "0.13.0"
+chrono.workspace = true
+directories = "6.0.0"
+futures-util = "0.3.31"
+open = "5.4.3"
+parking_lot = "0.12.5"
+serde_json.workspace = true
+slint = { version = "1.14.1", default-features = false, features = ["backend-winit", "compat-1-2", "raw-window-handle-06", "renderer-femtovg"] }
+tokio = { version = "1.48.0", features = ["macros", "rt", "sync", "time"] }
+url = "2.5.7"
+uuid.workspace = true
+watchbridge-core = { version = "0.1.0", path = "../core" }
+
+[target.'cfg(windows)'.dependencies]
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
+window-vibrancy = "0.8.0"
+
+[build-dependencies]
+slint-build = "1.14.1"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1.31"

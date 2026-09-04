@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  repository-safety:
+    name: Repository safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reject private workspace data and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.ai|\.workos)(/|$)'; then
+            echo "Private WorkOS data must never be tracked." >&2
+            exit 1
+          fi
+          if git ls-files | grep -E '\.(p12|pfx|pem|key|mobileprovision)$'; then
+            echo "Signing material or private keys must never be tracked." >&2
+            exit 1
+          fi
+          if git grep -IEn '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})' -- . ':!Cargo.lock'; then
+            echo "A credential-like value is present in tracked source." >&2
+            exit 1
+          fi
+
+  rust-core:
+    name: Rust core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-core-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-core-
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy,rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test shared core
+        run: cargo test --locked --package watchbridge-core
+      - name: Lint shared core and packaging
+        run: cargo clippy --locked --package watchbridge-core --package xtask --all-targets -- -D warnings
+
+  macos:
+    name: macOS client
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-native-
+      - name: Select Xcode 26.3
+        run: sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Build shared Rust library
+        run: cargo xtask prepare-macos
+      - name: Test native macOS client
+        run: swift test --package-path apps/macos
+      - name: Build native macOS client
+        run: swift build --package-path apps/macos --configuration release
+
+  windows:
+    name: Windows client
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-native-
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy
+      - name: Test shared core
+        run: cargo test --locked --package watchbridge-core
+      - name: Test Windows client
+        run: cargo test --locked --package watchbridge-windows
+      - name: Lint Windows client
+        run: cargo clippy --locked --package watchbridge-windows --all-targets -- -D warnings
+      - name: Build Windows client
+        run: cargo build --locked --release --package watchbridge-windows
