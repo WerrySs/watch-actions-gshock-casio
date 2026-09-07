@@ -77,6 +77,7 @@ enum Snapshotter {
         app.setActivationPolicy(.accessory)
         let fullWindow = CommandLine.arguments.contains("--full-window")
         let minimumSize = CommandLine.arguments.contains("--minimum-size")
+        let fullPage = CommandLine.arguments.contains("--full-page")
         // Dashboard contains the largest image, so it is captured last to reduce interference.
         let order: [SidebarItem] = [.watches, .reminders, .alarms, .settings, .actions, .log, .watch]
         let connectedStore = WatchStore.preview(connected: true)
@@ -98,7 +99,7 @@ enum Snapshotter {
             // A full-host ScrollView can snapshot transparently, so add a two-point opaque column.
             let wrapped = HStack(spacing: 0) { content; Color.clear.frame(width: 2) }
             let size = fullWindow
-                ? CGSize(width: minimumSize ? 1_080 : 1_240, height: minimumSize ? 700 : 800)
+                ? CGSize(width: minimumSize ? 1_080 : 1_240, height: fullPage ? 1_400 : (minimumSize ? 700 : 800))
                 : CGSize(width: 960, height: 760)
             capture(ZStack { Color(nsColor: .windowBackgroundColor); wrapped }, size: size, to: url)
             print("\(isBlank(url) ? "BLANK   " : "ok      ") \(name)")
@@ -123,9 +124,11 @@ enum Snapshotter {
     }
 
     private static func capture<V: View>(_ view: V, size: CGSize, to url: URL) {
-        let hosting = NSHostingView(rootView: view.environment(\.snapshotRendering, true))
+        let hosting = NSHostingView(rootView: view
+            .environment(\.snapshotRendering, true)
+            .environment(\.controlActiveState, .key))
         hosting.frame = NSRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hosting.frame,
+        let window = SnapshotWindow(contentRect: hosting.frame,
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .darkAqua)
@@ -141,5 +144,13 @@ enum Snapshotter {
         frameView.cacheDisplay(in: frameView.bounds, to: rep)
         if let png = rep.representation(using: .png, properties: [:]) { try? png.write(to: url) }
         window.orderOut(nil)
+    }
+
+    /// CI desktops can be smaller than the requested render. Never let AppKit silently
+    /// resize the offscreen fixture to the runner's screen and change the tested layout.
+    private final class SnapshotWindow: NSWindow {
+        override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+            frameRect
+        }
     }
 }

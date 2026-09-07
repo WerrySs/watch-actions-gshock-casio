@@ -125,6 +125,7 @@ jobs:
           for page in watch actions; do
             dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/minimum" --full-window --minimum-size --only "$page"
           done
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/full-page" --full-window --full-page --only actions
       - name: Upload documentation previews for visual review
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
