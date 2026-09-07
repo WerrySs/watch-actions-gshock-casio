@@ -355,7 +355,7 @@ jobs:
           if [[ "$IS_TAG" == "true" ]]; then
             tag="v$VERSION"
             gh release create "$tag" dist/*.dmg dist/*.zip dist/*.sha256 \
-              --draft --verify-tag --generate-notes --title "WatchBridge $VERSION"
+              --draft --verify-tag --generate-notes --title "WatchBridge $VERSION · macOS & Windows"
           else
             visibility="$(gh api "repos/$GH_REPO" --jq .visibility)"
             if [[ "$visibility" != "private" && "$visibility" != "public" ]]; then
@@ -374,6 +374,6 @@ jobs:
             tag="beta-v${VERSION}-${GITHUB_RUN_NUMBER}"
             gh release create "$tag" dist/*.dmg dist/*.zip dist/*.sha256 \
               --draft --prerelease --target "$GITHUB_SHA" \
-              --notes-file docs/PREVIEW_RELEASE.md --title "WatchBridge $VERSION · experimental beta $GITHUB_RUN_NUMBER"
+              --notes-file docs/PREVIEW_RELEASE.md --title "WatchBridge $VERSION Beta $GITHUB_RUN_NUMBER · macOS & Windows"
           fi
           gh release edit "$tag" --draft=false

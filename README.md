@@ -2,7 +2,7 @@
 
 **Supported watch gestures, useful computer actions, local data.**
 
-[Downloads](https://github.com/WerrySs/watch-actions-gshock-casio/releases) · [CI builds](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) · [Compatibility](docs/COMPATIBILITY.md) · [Contribute](CONTRIBUTING.md) · [References](docs/REFERENCES.md)
+[Download beta](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-3) · [CI builds](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) · [Compatibility](docs/COMPATIBILITY.md) · [Contribute](CONTRIBUTING.md) · [References](docs/REFERENCES.md)
 
 WatchBridge connects supported Bluetooth watch gestures to actions on macOS and Windows. The application is called **WatchBridge**; the repository name describes the intended hardware.
 
@@ -18,16 +18,16 @@ WatchBridge connects supported Bluetooth watch gestures to actions on macOS and 
 
 ## Download the app
 
-Open [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) and select the newest **experimental beta**:
+**[WatchBridge 0.1.0 Beta 3 · macOS & Windows](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-3)** — experimental downloads, published September 7, 2026.
 
 | Computer | Package | Installation |
 | --- | --- | --- |
-| macOS 14+, Apple silicon or Intel | macOS-universal DMG or ZIP | Copy WatchBridge.app to Applications |
-| Windows x64 | Windows-x64 ZIP | Extract the entire archive, then run WatchBridge.exe |
+| macOS 14+, Apple silicon or Intel | [Download DMG](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-macOS-universal.dmg) · [ZIP](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-macOS-universal.zip) | Copy WatchBridge.app to Applications |
+| Windows x64 | [Download ZIP](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-Windows-x64.zip) | Extract the entire archive, then run WatchBridge.exe |
 
-Every package has a SHA-256 checksum. Review the release notes and [installation guidance](docs/INSTALLATION.md) first. If there is no release for a commit yet, each successful [CI run](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) provides macOS and Windows review archives under **Artifacts**, retained for 14 days.
+Verify your download with the [macOS SHA-256 checksums](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-macOS.sha256) or [Windows SHA-256 checksum](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-Windows-x64.sha256). Review the release notes and [installation guidance](docs/INSTALLATION.md) first. Browse [all releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) for other versions. If there is no release for a commit yet, each successful [CI run](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) provides macOS and Windows review archives under **Artifacts**, retained for 14 days.
 
-Windows 11 is the intended Mica experience. Windows 10 has a fallback appearance and needs separate acceptance testing. ARM64 Windows binaries and Linux are not distributed. Public release downloads do not require a GitHub account; CI artifact downloads require signing in. If the repository is still private, access is limited to invited collaborators.
+Windows 11 is the intended Mica experience. Windows 10 has a fallback appearance and needs separate acceptance testing. ARM64 Windows binaries and Linux are not distributed. Release downloads do not require a GitHub account; CI artifact downloads require signing in.
 
 ## Supported device scope
 

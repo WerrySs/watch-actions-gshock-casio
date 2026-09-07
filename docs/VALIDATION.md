@@ -12,11 +12,13 @@ macOS screenshots are sample-data offscreen renders. The [design validation scop
 
 The local RustSec scan on 2026-09-07 reported no known vulnerabilities and four indirect **unmaintained** notices: bincode 2.0.1, paste 1.0.15, rustybuzz 0.20.1 and ttf-parser 0.25.1. These upstream notices remain visible; they were not suppressed to claim a clean audit. Dependency policy also reports allowed duplicate transitive versions. Track upstream replacements before stable distribution. Audits are point-in-time evidence, not a guarantee of safety.
 
-## Before opening an experimental beta
+## Public experimental beta
 
-Complete the [public-beta checklist](PUBLIC_BETA_CHECKLIST.md), including privacy review of Git history and Actions, a fresh green native CI/release, owner authorization, and verification of repository protections. Public source availability is not a claim of production readiness.
+The owner explicitly authorized opening the repository on September 7, 2026 with physical-watch and interactive acceptance tests and publisher signing still pending. [WatchBridge 0.1.0 Beta 3](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-3) is a public experimental release, not a production-readiness or hardware-certification claim.
 
-Minimum physical tests on macOS and Windows remain pending. Do not mark them complete from unit tests, CI runners, an offscreen screenshot, or user activity in the older Swift prototype. If the owner chooses to open the source before these tests, that exception must be explicit and the beta warning and unverified compatibility matrix must remain visible.
+The [public-beta checklist](PUBLIC_BETA_CHECKLIST.md) covered Git history and Actions privacy review, green native [CI](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34116593291) and [release](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34116595065) runs on commit `db345172fe41e1d26c38cf1c5be32471d8d4a0f9`, and archive/checksum/licensing verification. After the authorized switch, main-branch protection, secret scanning, push protection, dependency alerts and private vulnerability reporting were enabled and verified.
+
+Minimum physical tests on macOS and Windows remain pending in [the acceptance-tracking issue](https://github.com/WerrySs/watch-actions-gshock-casio/issues/2). Do not mark them complete from unit tests, CI runners, an offscreen screenshot, or user activity in the older Swift prototype. The beta warning and unverified compatibility matrix remain visible.
 
 ## Required before a stable release
 
@@ -25,7 +27,7 @@ Minimum physical tests on macOS and Windows remain pending. Do not mark them com
 - Test interactive Windows layout/Mica, keyboard navigation, scaling and accessibility on a real desktop; test Mac title-bar/sidebar and permission flows.
 - Validate native computer actions manually. Screen locking is reported as a request, not proof the screen is locked. On newer Macs it requires explicit Accessibility permission for the OS shortcut.
 - Resolve or document an accepted mitigation for the indirect unmaintained dependency notices.
-- Obtain the owner's explicit approval before changing visibility. Release publication never changes it automatically.
+- Obtain the owner's approval for stable distribution after the preceding gates are met. Release publication never changes repository visibility automatically.
 
 ## Primary implementation references
 
