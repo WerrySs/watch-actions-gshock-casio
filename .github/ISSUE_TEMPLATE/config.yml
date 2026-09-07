@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security report
-    url: https://github.com/WerrySs/watchbridge/security/advisories/new
+    url: https://github.com/WerrySs/watch-actions-gshock-casio/blob/main/SECURITY.md
     about: Report suspected vulnerabilities privately.
   - name: Support guide
-    url: https://github.com/WerrySs/watchbridge/blob/main/SUPPORT.md
+    url: https://github.com/WerrySs/watch-actions-gshock-casio/blob/main/SUPPORT.md
     about: Check connection and diagnostic guidance before filing an issue.

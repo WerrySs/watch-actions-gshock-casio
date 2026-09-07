@@ -6,4 +6,4 @@ apps/macos/Sources/CWatchBridge/** linguist-generated=true
 *.png binary
 *.ico binary
 *.h linguist-detectable=false
-Cargo.lock -diff
+Cargo.lock text

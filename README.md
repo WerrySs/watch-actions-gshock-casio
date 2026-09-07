@@ -1,93 +1,106 @@
-# WatchBridge
+# WatchBridge · Casio G-SHOCK Watch Actions
 
-WatchBridge is an independent desktop bridge for compatible Bluetooth watch buttons on macOS and Windows. It keeps watch data local, remembers the most recent synchronized state, and can map supported watch gestures to a small set of safe computer actions.
+**Supported watch gestures, useful computer actions, local data.**
+
+[Downloads](https://github.com/WerrySs/watch-actions-gshock-casio/releases) · [CI builds](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) · [Compatibility](docs/COMPATIBILITY.md) · [Contribute](CONTRIBUTING.md) · [References](docs/REFERENCES.md)
+
+WatchBridge connects supported Bluetooth watch gestures to actions on macOS and Windows. The application is called **WatchBridge**; the repository name describes the intended hardware.
 
 > [!IMPORTANT]
-> WatchBridge is an unofficial community project. It is not affiliated with, authorized by, sponsored by, endorsed by, or supported by Casio Computer Co., Ltd. CASIO and G-SHOCK are trademarks of their respective owner and are referenced only to describe device compatibility.
+> Independent, unofficial project. Not affiliated with, authorized by, sponsored by, endorsed by, or supported by Casio Computer Co., Ltd. CASIO and G-SHOCK are trademarks of their respective owner and are used only to identify compatible hardware. This is not an official Casio application.
 
-![WatchBridge dashboard on macOS](docs/screenshots/dashboard.png)
+> [!WARNING]
+> **Private development preview, not a stable release.** Builds and automated tests are not a substitute for physical-watch acceptance tests. Preview packages are not Developer ID/notarized or Authenticode-signed unless their release explicitly states otherwise. Do not disable operating-system security protections to install them.
 
-## What it does
+![WatchBridge macOS dashboard preview](docs/screenshots/dashboard.png)
 
-- Presents a native, translucent SwiftUI experience on macOS and a native Mica-style Slint experience on Windows.
-- Lets you register any watch model before owning or pairing the physical watch.
-- Uses a favorite watch on the Dashboard, falling back to the most recently connected watch.
-- Keeps battery, temperature, home city, timer, alarms, reminders, settings, and connection history visible while disconnected.
-- Lets macOS users supply their own watch photo. WatchBridge bounds, decodes, and re-encodes it as a metadata-free PNG stored only on that Mac.
-- Maps supported `CNCT`, `TIME`, `FIND`, and automatic connection events to allowlisted computer actions.
-- Blocks automatic actions until the exact physical watch has connected and the user explicitly trusts it.
-- Queues watch changes and applies them on the next compatible connection.
+## Download the app
 
-The currently implemented Bluetooth protocol targets the compatible GW-B5600 family. Other models can be catalogued, but they should not be assumed to support synchronization until their protocol has been tested and documented.
+Open [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) and select a **private preview**:
 
-## Native clients, shared core
-
-| Layer | Technology | Responsibility |
+| Computer | Package | Installation |
 | --- | --- | --- |
-| Shared core | Rust | Validated data model, protocol codec, bounded persistence, history, and FFI |
-| macOS client | Swift + SwiftUI/AppKit | Native materials, CoreBluetooth, local images, menu bar, and macOS actions |
-| Windows client | Rust + Slint | Mica presentation, Windows BLE runtime, local state, and Windows actions |
+| macOS 14+, Apple silicon or Intel | macOS-universal DMG or ZIP | Copy WatchBridge.app to Applications |
+| Windows x64 | Windows-x64 ZIP | Extract the entire archive, then run WatchBridge.exe |
 
-This keeps the polished native macOS interface while sharing the security-sensitive protocol and validation logic with Windows. See [Architecture](docs/ARCHITECTURE.md) for boundaries and data flow.
+Every package has a SHA-256 checksum. Review the release notes and [installation guidance](docs/INSTALLATION.md) first. If there is no release for a commit yet, each successful [CI run](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) provides macOS and Windows review archives under **Artifacts**, retained for 14 days.
 
-## Interface
+Windows 11 is the intended Mica experience. Windows 10 has a fallback appearance and needs separate acceptance testing. ARM64 Windows binaries and Linux are not distributed. You must be signed in with access to this private repository to download either platform.
 
-<p align="center">
-  <img src="docs/screenshots/actions.png" alt="Aligned action cards and physical button guide" width="48%">
-  <img src="docs/screenshots/my-watches.png" alt="Local watch collection" width="48%">
-</p>
+## Supported device scope
 
-The action cards use a fixed grid and equalized internal regions, so controls remain aligned even when one action needs an extra value. Both clients keep their primary content inside a bounded, scrollable application window.
+The implementation is intentionally limited to the **GW-B5600 family / module 3461** and the variants listed in [Compatibility](docs/COMPATIBILITY.md). Other Casio families are not accepted merely because they advertise Bluetooth or work with another project.
 
-## Build locally
+- **FIND:** hold the lower-right D button for about five seconds.
+- **TIME:** briefly press D from the timekeeping screen.
+- **CNCT:** hold the lower-left C button for about three seconds.
+- **AUTO:** an automatic connection reason, not a physical button.
 
-Requirements:
+These are short connection sessions, not continuous keyboard-like button events. No model/platform combination is advertised as fully hardware-certified yet.
 
-- Rust `1.98.1` through rustup.
-- macOS 14 or later with Swift 6.2 to build the macOS client.
-- Windows 10 or later to build and run the Windows client.
+## What is implemented
+
+| Capability | macOS | Windows |
+| --- | --- | --- |
+| Desktop UI | SwiftUI/AppKit with native materials | Rust/Slint, with Mica requested on supported Windows versions |
+| Bluetooth | CoreBluetooth | Windows BLE through btleplug |
+| Saved watches, favorite and offline snapshots | Yes | Yes |
+| Explicit physical-watch association and action trust | Yes | Yes |
+| Connection history and action configuration | Yes | Yes |
+| Local, metadata-free user watch photos | Yes | Not yet |
+| Reminder, alarm and settings editors | Yes | Cached read-only views; editor parity pending |
+| Shortcuts integration | macOS Shortcuts | Not yet |
+
+Slint is not WinUI: both clients are compiled desktop apps, but their controls and feature sets are not identical. Their local JSON formats are also different; copying state files between platforms is not supported. See [Architecture](docs/ARCHITECTURE.md).
+
+![Aligned macOS action cards and button guide](docs/screenshots/actions.png)
+
+Screenshots are macOS design previews, not evidence of Windows visual or physical-device testing.
+
+See [Validation and remaining acceptance work](docs/VALIDATION.md) for test scope, dependency maintenance notices and stable-release prerequisites.
+
+## Safe by default
+
+- Register a supported model before pairing, then explicitly link it to the chosen physical watch.
+- Computer actions remain blocked until you authorize that physical unit. Linking does not grant trust.
+- Unknown connection reasons fail closed. Configuration queues are scoped to a physical watch, never just a model or favorite.
+- Legacy unassigned changes are preserved but never automatically sent; recreate them for the intended watch.
+- Invalid or unreadable state pauses persistence and automatic actions instead of replacing the original with defaults.
+- GUI application launches are separate from short-lived helper deadlines. Arbitrary shell-command actions are not supported.
+- A dropped Bluetooth connection is not reported as a confirmed time sync.
+- Watch readings remain visible offline and are last-known data, not continuous live telemetry.
+
+Use hardware you control and keep backups. Do not rely on experimental Bluetooth actions for safety-critical tasks.
+
+## Build and contribute
+
+Requirements: rustup (the repo pins Rust 1.98.1), Swift 6.2+ on macOS, or MSVC C++ build tools and the Windows SDK on Windows. Native CI uses Xcode 26.3 and the Windows 2022 runner.
+
+```console
+git clone https://github.com/WerrySs/watch-actions-gshock-casio.git
+cd watch-actions-gshock-casio
+cargo test --locked --package watchbridge-core
+```
 
 macOS:
 
 ```console
 cargo xtask prepare-macos
+swift test --package-path apps/macos
 swift run --package-path apps/macos WatchBridge
 ```
 
 Windows:
 
 ```console
-cargo run --package watchbridge-windows
+cargo test --locked --package watchbridge-windows
+cargo run --locked --package watchbridge-windows
 ```
 
-Run the core checks:
+Read [Contributing](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md), and the [Roadmap](docs/ROADMAP.md). Hardware support needs an exact-model, exact-platform test report, not just a new catalog entry. [Release instructions](docs/RELEASING.md) explain preview publishing and the stable-signing gate.
 
-```console
-cargo fmt --all -- --check
-cargo test --locked --package watchbridge-core
-cargo clippy --workspace --all-targets -- -D warnings
-```
+## Privacy and license
 
-The repository intentionally contains only the application source and small first-party assets. Build output, signing material, local app state, `.ai/`, and `.workos/` are ignored.
+WatchBridge has no app account, analytics or automatic cloud upload. Data and imported photos stay on the computer. Actions you explicitly configure may open websites or invoke other applications with their own privacy behavior. Read [Privacy](PRIVACY.md), [Security](SECURITY.md) and [Support](SUPPORT.md).
 
-## Releases
-
-GitHub Actions builds both clients on their native hosted runners. Manual workflow runs upload short-lived test artifacts. A `v*` tag can publish a GitHub Release only after the configured signing checks pass. See [Releasing](docs/RELEASING.md) for the exact secrets, validation steps, and artifact names.
-
-No release artifact is committed to Git. Every downloadable archive has a SHA-256 checksum.
-
-## Privacy and security
-
-WatchBridge has no account, analytics, advertising SDK, or network upload service. It discovers compatible devices through the operating system Bluetooth API and stores app state locally. Read [Privacy](PRIVACY.md) and [Security](SECURITY.md) before testing a new device.
-
-Computer actions are intentionally allowlisted. The project does not accept or execute arbitrary shell commands, and untrusted or manually registered records cannot trigger actions.
-
-## Contributing
-
-The repository is private during early hardware validation, but it is structured for public collaboration later. Read [Contributing](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md), and [Support](SUPPORT.md) before opening a change.
-
-## Responsible use and license
-
-This software is intended for lawful, responsible, personal experimentation with hardware you control. You are responsible for device compatibility, local regulations, backups, and any action you configure.
-
-The source code is available under the [MIT License](LICENSE). The MIT terms govern redistribution and modification; the personal-use statement describes the project's intended use and is not an additional license restriction.
+Project source is under the [MIT License](LICENSE); dependencies retain their [own licenses](THIRD_PARTY_NOTICES.md). Responsible personal experimentation is the intended use, not an additional restriction on the MIT terms.

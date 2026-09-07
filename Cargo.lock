@@ -5393,11 +5393,13 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "tempfile",
  "tokio",
  "url",
  "uuid",
  "watchbridge-core",
  "window-vibrancy",
+ "windows-sys 0.61.2",
  "winresource",
 ]
 

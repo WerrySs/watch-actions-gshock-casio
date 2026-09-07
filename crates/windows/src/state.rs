@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use chrono::{DateTime, Utc};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use watchbridge_core::model::{AppData, ConnectionPhase};
 
 #[derive(Debug, Clone)]
@@ -56,6 +56,10 @@ pub struct SharedState {
     state_path: PathBuf,
     revision: AtomicU64,
     demo: bool,
+    writable: AtomicBool,
+    saving: Mutex<()>,
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    action_running: AtomicBool,
 }
 
 impl SharedState {
@@ -64,16 +68,20 @@ impl SharedState {
             Ok(data) => (data, None),
             Err(error) => (AppData::default(), Some(error.to_string())),
         };
+        let writable = load_error.is_none();
         let shared = Arc::new(Self {
             data: RwLock::new(data),
             runtime: RwLock::new(RuntimeStatus::default()),
             state_path,
             revision: AtomicU64::new(0),
             demo: false,
+            writable: AtomicBool::new(writable),
+            saving: Mutex::new(()),
+            action_running: AtomicBool::new(false),
         });
         if let Some(error) = load_error {
             let mut runtime = shared.runtime.write();
-            runtime.set(ConnectionPhase::Error, "Local data could not be loaded");
+            runtime.set(ConnectionPhase::Error, "Local data is protected: restore a valid backup and restart. Bluetooth and saves are paused.");
             runtime.push_trace(error);
         }
         shared
@@ -88,17 +96,32 @@ impl SharedState {
             state_path: PathBuf::new(),
             revision: AtomicU64::new(0),
             demo: true,
+            writable: AtomicBool::new(true),
+            saving: Mutex::new(()),
+            action_running: AtomicBool::new(false),
         })
     }
 
     pub fn save(&self) {
+        if !self.can_mutate() {
+            return;
+        }
+        let _saving = self.saving.lock();
+        if !self.can_mutate() {
+            return;
+        }
+        self.revision.fetch_add(1, Ordering::Relaxed);
         if self.demo {
             return;
         }
         let snapshot = self.data.read().clone();
         if let Err(error) = watchbridge_core::storage::save(&self.state_path, &snapshot) {
+            self.writable.store(false, Ordering::Relaxed);
             let mut runtime = self.runtime.write();
-            runtime.set(ConnectionPhase::Error, "Local data could not be saved");
+            runtime.set(
+                ConnectionPhase::Error,
+                "Saving failed. Writes and actions are paused; check local storage and restart.",
+            );
             runtime.push_trace(error.to_string());
         } else {
             self.revision.fetch_add(1, Ordering::Relaxed);
@@ -114,5 +137,47 @@ impl SharedState {
 
     pub fn revision(&self) -> u64 {
         self.revision.load(Ordering::Relaxed)
+    }
+
+    pub fn can_mutate(&self) -> bool {
+        self.writable.load(Ordering::Relaxed)
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn begin_action(&self) -> bool {
+        self.can_mutate()
+            && self
+                .action_running
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn finish_action(&self, summary: String) {
+        let mut runtime = self.runtime.write();
+        runtime.last_action_result = Some(summary);
+        runtime.last_update = Utc::now();
+        self.action_running.store(false, Ordering::SeqCst);
+        self.revision.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn failed_loads_are_not_overwritten() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("state.json");
+        for bytes in [
+            b"not JSON".as_slice(),
+            b"{\"schema_version\":999}".as_slice(),
+        ] {
+            std::fs::write(&path, bytes).unwrap();
+            let state = SharedState::load(path.clone());
+            assert!(!state.can_mutate());
+            state.save();
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
     }
 }

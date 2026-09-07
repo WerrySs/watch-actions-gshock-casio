@@ -15,4 +15,22 @@ All notable changes are documented here. This project follows Semantic Versionin
 - Equalized action-card grid and physical-button guide.
 - Least-privilege CI, scheduled dependency audits, signed release packaging, and SHA-256 checksums.
 
-[Unreleased]: https://github.com/WerrySs/watchbridge/commits/main
+### Fixed
+
+- Bind pending changes to physical watch IDs, preserve edits made while an older value is in flight, and quarantine legacy global queues.
+- Reject unknown Bluetooth reasons instead of treating them as TIME gestures.
+- Protect unreadable/newer local state from default-state overwrites; pause writes after save failures.
+- Restrict discovery to the implemented GW-B5600 family; require explicit manual-to-physical linking without inherited trust.
+- Keep launched Windows apps running, use the native lock request, and refresh action results in the interface.
+- Serialize Mac handshake/write acknowledgements; do not report dropped time writes as successful synchronization.
+- Bound connection setup, Windows session cancellation and command delivery.
+- Align Windows action-card rows and preserve minimum window bounds.
+
+### Distribution
+
+- Rename the private repository to `WerrySs/watch-actions-gshock-casio`; retain the independent WatchBridge app name.
+- Attach universal macOS and Windows x64 downloads to CI; support labeled private preview releases.
+- Add installation, compatibility evidence, primary references and contribution guidance.
+- Stable distribution still requires publisher certificates and real-device validation; previews are not hardware certification.
+
+[Unreleased]: https://github.com/WerrySs/watch-actions-gshock-casio/commits/main

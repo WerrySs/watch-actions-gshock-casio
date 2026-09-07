@@ -16,6 +16,8 @@ void wb_string_free(char *value);
 void wb_bytes_free(WbBytes value);
 char *wb_normalize_model(const char *value);
 char *wb_model_from_bluetooth_name(const char *value);
+bool wb_is_supported_model(const char *value);
+bool wb_is_supported_bluetooth_name(const char *value);
 char *wb_sanitize_text(const char *value, size_t maximum_characters);
 char *wb_validate_app_data_json(const char *value);
 uint8_t wb_decode_button(const uint8_t *data, size_t len);

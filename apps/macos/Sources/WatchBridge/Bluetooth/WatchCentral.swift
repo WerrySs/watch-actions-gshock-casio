@@ -39,6 +39,16 @@ final class WatchCentral: NSObject {
     private var featuresChar: CBCharacteristic?
     private var pendingNotifyEnables = 0
     private var wantScanning = false
+    private var sessionHeld = false
+    private let writeLock = AsyncLock()
+    private var answeringChallenge = false
+    private var setupTimeout: Task<Void, Never>?
+
+    func holdSession() { sessionHeld = true }
+    func releaseSession() {
+        sessionHeld = false
+        if wantScanning { startScanning() }
+    }
 
     private struct Waiter { let id = UUID(); let continuation: CheckedContinuation<[UInt8], Error> }
     private var waiters: [UInt8: Waiter] = [:]
@@ -56,7 +66,7 @@ final class WatchCentral: NSObject {
 
     func startScanning() {
         wantScanning = true
-        guard let central, central.state == .poweredOn, peripheral == nil, !central.isScanning else { return }
+        guard !sessionHeld, let central, central.state == .poweredOn, peripheral == nil, !central.isScanning else { return }
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         onTrace?("Scanning for the watch…")
     }
@@ -92,6 +102,12 @@ final class WatchCentral: NSObject {
 
     /// Writes data with response to the primary characteristic.
     func write(_ bytes: [UInt8], timeout: TimeInterval = 10) async throws {
+        try await writeLock.withLock {
+            try await writeLocked(bytes, timeout: timeout)
+        }
+    }
+
+    private func writeLocked(_ bytes: [UInt8], timeout: TimeInterval) async throws {
         guard isConnected, let p = peripheral, let fc = featuresChar else { throw BLEError.notConnected }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             if let old = writeWaiter { writeWaiter = nil; old.continuation.resume(throwing: BLEError.writeFailed("replaced by another write")) }
@@ -103,6 +119,9 @@ final class WatchCentral: NSObject {
                 try? await Task.sleep(for: .seconds(timeout))
                 guard let self, let current = self.writeWaiter, current.id == waiter.id else { return }
                 self.writeWaiter = nil
+                // A late acknowledgement must never confirm a later write.
+                self.isConnected = false
+                self.disconnect()
                 current.continuation.resume(throwing: BLEError.timeout(bytes.first ?? 0))
             }
         }
@@ -118,13 +137,22 @@ final class WatchCentral: NSObject {
     }
 
     private func handleDiscover(_ peripheral: CBPeripheral, name: String, rssi: NSNumber) {
-        guard name.uppercased().hasPrefix("CASIO"), self.peripheral == nil else { return }
+        guard wantScanning, !sessionHeld, RustCore.supports(bluetoothName: name), self.peripheral == nil else { return }
         onTrace?("Saw \(name) (\(rssi) dBm)")
         watchName = name
         self.peripheral = peripheral
         peripheral.delegate = self
         central.stopScan()
         central.connect(peripheral, options: nil)
+        setupTimeout?.cancel()
+        setupTimeout = Task { [weak self, weak peripheral] in
+            try? await Task.sleep(for: .seconds(25))
+            guard !Task.isCancelled, let self, let peripheral,
+                  self.peripheral === peripheral, !self.isConnected else { return }
+            self.onTrace?("Bluetooth connection setup timed out")
+            self.central?.cancelPeripheralConnection(peripheral)
+            self.cleanup(error: BLEError.timeout(WatchCode.bleFeatures))
+        }
     }
 
     private func handleCharacteristics(_ characteristics: [CBCharacteristic], of peripheral: CBPeripheral) {
@@ -153,9 +181,16 @@ final class WatchCentral: NSObject {
 
     private func handleValue(_ bytes: [UInt8], from peripheral: CBPeripheral) {
         onTrace?("← \(WatchProtocol.hex(bytes))")
-        if WatchProtocol.isAppInfoChallenge(bytes), let fc = featuresChar {
+        if WatchProtocol.isAppInfoChallenge(bytes), !answeringChallenge {
             // The watch checks the client and may disconnect without this response.
-            peripheral.writeValue(Data(WatchProtocol.appInfoResponse), for: fc, type: .withResponse)
+            // Use the same serialized write path: this ACK cannot acknowledge a settings write.
+            answeringChallenge = true
+            Task { [weak self] in
+                guard let self else { return }
+                defer { self.answeringChallenge = false }
+                do { try await self.write(WatchProtocol.appInfoResponse, timeout: 5) }
+                catch { self.onTrace?("Watch handshake failed: \(error.localizedDescription)") }
+            }
         }
         if let w = waiters.removeValue(forKey: bytes[0]) {
             w.continuation.resume(returning: bytes)
@@ -169,6 +204,8 @@ final class WatchCentral: NSObject {
     }
 
     private func cleanup(error: Error?) {
+        setupTimeout?.cancel()
+        setupTimeout = nil
         let name = watchName
         isConnected = false
         failAll(error ?? BLEError.notConnected)
@@ -189,6 +226,8 @@ final class WatchCentral: NSObject {
     private func finishSetupIfReady() {
         guard !isConnected, pendingNotifyEnables == 0, requestChar != nil, featuresChar != nil else { return }
         isConnected = true
+        setupTimeout?.cancel()
+        setupTimeout = nil
         onTrace?("Connected to \(watchName ?? "watch")")
         onConnected?(watchName ?? "CASIO", peripheral?.identifier ?? UUID())
     }
@@ -214,6 +253,7 @@ extension WatchCentral: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
+            guard self.peripheral === peripheral else { return }
             onTrace?("Connection failed: \(error?.localizedDescription ?? "unknown")")
             cleanup(error: error)
         }
@@ -221,6 +261,7 @@ extension WatchCentral: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
+            guard self.peripheral === peripheral else { return }
             onTrace?("Disconnected")
             cleanup(error: error)
         }
@@ -229,7 +270,7 @@ extension WatchCentral: CBCentralManagerDelegate {
 
 extension WatchCentral: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard let services = peripheral.services, !services.isEmpty else {
+        guard error == nil, let services = peripheral.services?.filter({ $0.uuid == WatchBluetoothUUID.service }), !services.isEmpty else {
             MainActor.assumeIsolated {
                 onTrace?("The watch does not expose the expected compatibility service")
                 central?.cancelPeripheralConnection(peripheral)
@@ -240,21 +281,33 @@ extension WatchCentral: CBPeripheralDelegate {
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard error == nil, service.uuid == WatchBluetoothUUID.service else { return }
         let characteristics = service.characteristics ?? []
         MainActor.assumeIsolated { handleCharacteristics(characteristics, of: peripheral) }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-        MainActor.assumeIsolated { handleNotifyState() }
+        MainActor.assumeIsolated {
+            guard self.peripheral === peripheral else { return }
+            if let error { central?.cancelPeripheralConnection(peripheral); cleanup(error: error) }
+            else { handleNotifyState() }
+        }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        MainActor.assumeIsolated { handleWriteResult(error) }
+        MainActor.assumeIsolated {
+            guard self.peripheral === peripheral, characteristic.uuid == WatchBluetoothUUID.allFeatures else { return }
+            handleWriteResult(error)
+        }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard let data = characteristic.value, !data.isEmpty else { return }
+        guard error == nil, characteristic.uuid == WatchBluetoothUUID.request || characteristic.uuid == WatchBluetoothUUID.allFeatures,
+              let data = characteristic.value, !data.isEmpty else { return }
         let bytes = [UInt8](data)
-        MainActor.assumeIsolated { handleValue(bytes, from: peripheral) }
+        MainActor.assumeIsolated {
+            guard self.peripheral === peripheral else { return }
+            handleValue(bytes, from: peripheral)
+        }
     }
 }

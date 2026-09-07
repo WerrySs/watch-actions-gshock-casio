@@ -108,7 +108,10 @@ struct SavedWatch: Codable, Identifiable, Equatable, Hashable {
     var lastEvent: WatchButtonEvent?
 
     var effectiveModel: String { configuredModel ?? model }
-    var canRunMacActions: Bool { allowsMacActions == true }
+    var canRunMacActions: Bool {
+        allowsMacActions == true && connectionCount > 0 && manuallyRegistered != true
+            && RustCore.supports(model: model)
+    }
     var effectiveDisplayName: String { SavedWatch.displayName(for: effectiveModel) }
     var title: String {
         let cleaned = nickname?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -314,7 +317,7 @@ struct ActionsConfig: Codable, Equatable {
     var syncTimeOn: Set<WatchButtonEvent> = [.rightShort, .auto]
     var timeOffsetSeconds: Int = 0
 
-    func action(for event: WatchButtonEvent) -> WatchAction { actions[event] ?? .none }
+    func action(for event: WatchButtonEvent) -> WatchAction { event == .unknown ? .none : actions[event] ?? .none }
 }
 
 // MARK: - Pending changes and history
@@ -326,6 +329,18 @@ enum PendingChange: Codable, Equatable, Identifiable {
     case settings(WatchSettings)
     case autoTimeAdjust(Bool)
     case syncTime
+
+    var isValid: Bool {
+        switch self {
+        case .reminder(let reminder):
+            return (1...5).contains(reminder.slot) && reminder.title.utf8.count <= 4096
+        case .alarm(let alarm):
+            return (1...5).contains(alarm.number) && (0...23).contains(alarm.hour) && (0...59).contains(alarm.minute)
+        case .timer(let seconds): return (0...86_399).contains(seconds)
+        case .settings(let settings): return WatchSettings.languages.indices.contains(settings.language)
+        case .autoTimeAdjust, .syncTime: return true
+        }
+    }
 
     var id: String {
         switch self {

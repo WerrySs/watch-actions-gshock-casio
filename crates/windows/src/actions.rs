@@ -1,14 +1,15 @@
-use std::process::{Command, Stdio};
+use std::os::windows::{ffi::OsStringExt, process::CommandExt};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "windows")]
 use base64::Engine as _;
 use url::Url;
-
 use watchbridge_core::model::{ActionKind, WatchAction, sanitize_single_line};
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(20);
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionOutcome {
@@ -17,82 +18,54 @@ pub struct ActionOutcome {
 }
 
 pub async fn run(action: WatchAction) -> ActionOutcome {
-    tokio::task::spawn_blocking(move || run_blocking(&action))
+    tokio::task::spawn_blocking(move || run_sync(&action))
         .await
-        .unwrap_or_else(|_| ActionOutcome {
-            succeeded: false,
-            summary: "The action worker stopped unexpectedly".to_owned(),
-        })
+        .unwrap_or_else(|_| failure("The action worker stopped unexpectedly"))
 }
 
 pub fn run_sync(action: &WatchAction) -> ActionOutcome {
-    run_blocking(action)
-}
-
-fn run_blocking(action: &WatchAction) -> ActionOutcome {
     match action.kind {
         ActionKind::None => success("No action configured"),
-        ActionKind::FindComputer => find_computer(),
+        ActionKind::FindComputer => {
+            let result = run_powershell(
+                "[console]::beep(880,250); [console]::beep(880,250); [console]::beep(880,250)",
+            );
+            process_outcome(result, "Played the find-computer alert")
+        }
         ActionKind::Speak => {
-            let text = sanitize_single_line(&action.value, 240);
-            speak(if text.is_empty() { "Here I am" } else { &text })
+            let value = sanitize_single_line(&action.value, 240);
+            let text = if value.is_empty() {
+                "Here I am"
+            } else {
+                &value
+            };
+            let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+            let script = format!(
+                "$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}')); Add-Type -AssemblyName System.Speech; $v=New-Object System.Speech.Synthesis.SpeechSynthesizer; $v.Speak($t)"
+            );
+            process_outcome(run_powershell(&script), "Spoke the configured phrase")
         }
         ActionKind::OpenUrl => open_url(&action.value),
         ActionKind::OpenApplication => open_application(&action.value),
-        ActionKind::LockScreen => lock_screen(),
-        ActionKind::ToggleMute => toggle_mute(),
-        ActionKind::PlayPause => play_pause(),
+        ActionKind::LockScreen => {
+            // No pointers are passed; Windows performs the lock asynchronously.
+            if unsafe { windows_sys::Win32::System::Shutdown::LockWorkStation() } != 0 {
+                success("Requested screen lock")
+            } else {
+                failure("Windows could not lock the screen")
+            }
+        }
+        ActionKind::ToggleMute => media_key(0xAD, "Toggled speaker mute"),
+        ActionKind::PlayPause => media_key(0xB3, "Toggled media playback"),
     }
 }
 
-fn find_computer() -> ActionOutcome {
-    #[cfg(target_os = "macos")]
-    for _ in 0..3 {
-        let mut command = Command::new("/usr/bin/afplay");
-        command.args(["-v", "2", "/System/Library/Sounds/Glass.aiff"]);
-        let _ = run_process(command, PROCESS_TIMEOUT);
-    }
-
-    #[cfg(target_os = "windows")]
-    for _ in 0..3 {
-        let _ = run_powershell("[console]::beep(880,250)");
-    }
-
-    let speech = speak("Here I am");
-    if speech.succeeded {
-        success("Played the find-computer alert")
-    } else {
-        failure("The visual action ran, but the sound could not be played")
-    }
-}
-
-fn speak(text: &str) -> ActionOutcome {
-    let text = sanitize_single_line(text, 240);
-    if text.is_empty() {
-        return failure("Enter a phrase before running this action");
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new("/usr/bin/say");
-        command.arg(text);
-        return process_outcome(
-            run_process(command, PROCESS_TIMEOUT),
-            "Spoke the configured phrase",
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let encoded_text = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
-        let script = format!(
-            "$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_text}')); Add-Type -AssemblyName System.Speech; $v=New-Object System.Speech.Synthesis.SpeechSynthesizer; $v.Speak($t)"
-        );
-        return process_outcome(run_powershell(&script), "Spoke the configured phrase");
-    }
-
-    #[allow(unreachable_code)]
-    failure("Speech is not available on this operating system")
+fn media_key(key: u8, message: &str) -> ActionOutcome {
+    // The only variable in this fixed script is one of the internal virtual-key constants.
+    let script = format!(
+        "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class K {{ [DllImport(\"user32.dll\")] public static extern void keybd_event(byte a, byte b, uint c, uint d); }}'; [K]::keybd_event({key},0,0,0); [K]::keybd_event({key},0,2,0)"
+    );
+    process_outcome(run_powershell(&script), message)
 }
 
 fn open_url(value: &str) -> ActionOutcome {
@@ -108,112 +81,60 @@ fn open_url(value: &str) -> ActionOutcome {
     }
 }
 
+fn is_application_path(path: &Path) -> bool {
+    path.is_absolute()
+        && path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        && path.is_file()
+}
+
 fn open_application(value: &str) -> ActionOutcome {
-    let value = sanitize_single_line(value, 240);
-    if value.is_empty() {
-        return failure("Enter an application name or executable path");
+    let path = Path::new(value.trim());
+    if !is_application_path(path) {
+        return failure("Enter the full path to an existing .exe application");
     }
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new("/usr/bin/open");
-        command.args(["-a", &value]);
-        return process_outcome(
-            run_process(command, PROCESS_TIMEOUT),
-            "Opened the application",
-        );
+    // A launched GUI app owns its lifetime; dropping Child on Windows only closes our handle.
+    match launch_application(Command::new(path)) {
+        Ok(_) => success("Launched the application"),
+        Err(_) => failure("Windows could not launch the application"),
     }
-
-    #[cfg(target_os = "windows")]
-    {
-        let command = Command::new(value);
-        return process_outcome(
-            run_process(command, PROCESS_TIMEOUT),
-            "Opened the application",
-        );
-    }
-
-    #[allow(unreachable_code)]
-    failure("Opening applications is not available on this operating system")
 }
 
-fn lock_screen() -> ActionOutcome {
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new(
-            "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
-        );
-        command.arg("-suspend");
-        let result = run_process(command, PROCESS_TIMEOUT);
-        if result == ProcessResult::Succeeded {
-            return success("Locked the screen");
-        }
-        let mut fallback = Command::new("/usr/bin/pmset");
-        fallback.arg("displaysleepnow");
-        return process_outcome(run_process(fallback, PROCESS_TIMEOUT), "Locked the screen");
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let mut command = Command::new("rundll32.exe");
-        command.arg("user32.dll,LockWorkStation");
-        return process_outcome(run_process(command, PROCESS_TIMEOUT), "Locked the screen");
-    }
-
-    #[allow(unreachable_code)]
-    failure("Screen locking is not available on this operating system")
+fn launch_application(mut command: Command) -> std::io::Result<Child> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
 }
 
-fn toggle_mute() -> ActionOutcome {
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new("/usr/bin/osascript");
-        command.args([
-            "-e",
-            "set volume output muted not (output muted of (get volume settings))",
-        ]);
-        return process_outcome(run_process(command, PROCESS_TIMEOUT), "Toggled mute");
+fn system_powershell() -> Option<PathBuf> {
+    let mut buffer = [0u16; 32768];
+    // GetSystemDirectoryW writes at most the supplied size, excluding its trailing NUL in the result.
+    let length = unsafe {
+        windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+        )
+    } as usize;
+    if length == 0 || length >= buffer.len() {
+        return None;
     }
-
-    #[cfg(target_os = "windows")]
-    {
-        return process_outcome(
-            run_powershell("$w=New-Object -ComObject WScript.Shell; $w.SendKeys([char]173)"),
-            "Toggled mute",
-        );
-    }
-
-    #[allow(unreachable_code)]
-    failure("Mute control is not available on this operating system")
+    Some(
+        PathBuf::from(std::ffi::OsString::from_wide(&buffer[..length]))
+            .join("WindowsPowerShell/v1.0/powershell.exe"),
+    )
 }
 
-fn play_pause() -> ActionOutcome {
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new("/usr/bin/osascript");
-        command.args(["-e", "tell application \"Music\" to playpause"]);
-        return process_outcome(
-            run_process(command, PROCESS_TIMEOUT),
-            "Toggled media playback",
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let script = "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class K { [DllImport(\"user32.dll\")] public static extern void keybd_event(byte a, byte b, uint c, uint d); }'; [K]::keybd_event(0xB3,0,0,0); [K]::keybd_event(0xB3,0,2,0)";
-        return process_outcome(run_powershell(script), "Toggled media playback");
-    }
-
-    #[allow(unreachable_code)]
-    failure("Media control is not available on this operating system")
-}
-
-#[cfg(target_os = "windows")]
 fn run_powershell(script: &str) -> ProcessResult {
+    let Some(path) = system_powershell() else {
+        return ProcessResult::Failed;
+    };
     let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
-    let mut command = Command::new("powershell.exe");
-    command.args([
+    let mut command = Command::new(path);
+    command.creation_flags(CREATE_NO_WINDOW).args([
         "-NoLogo",
         "-NoProfile",
         "-NonInteractive",
@@ -249,31 +170,32 @@ fn run_process(mut command: Command, timeout: Duration) -> ProcessResult {
                 };
             }
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(40)),
-            Ok(None) => {
+            result => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return ProcessResult::TimedOut;
+                return if result.is_err() {
+                    ProcessResult::Failed
+                } else {
+                    ProcessResult::TimedOut
+                };
             }
-            Err(_) => return ProcessResult::Failed,
         }
     }
 }
 
-fn process_outcome(result: ProcessResult, success_message: &str) -> ActionOutcome {
+fn process_outcome(result: ProcessResult, message: &str) -> ActionOutcome {
     match result {
-        ProcessResult::Succeeded => success(success_message),
+        ProcessResult::Succeeded => success(message),
         ProcessResult::Failed => failure("The operating system rejected the action"),
-        ProcessResult::TimedOut => failure("The action exceeded its 20-second deadline"),
+        ProcessResult::TimedOut => failure("The action helper exceeded its 20-second deadline"),
     }
 }
-
 fn success(summary: &str) -> ActionOutcome {
     ActionOutcome {
         succeeded: true,
         summary: summary.to_owned(),
     }
 }
-
 fn failure(summary: &str) -> ActionOutcome {
     ActionOutcome {
         succeeded: false,
@@ -284,32 +206,40 @@ fn failure(summary: &str) -> ActionOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn only_http_and_https_links_are_allowed() {
-        assert!(!open_url("file:///tmp/example").succeeded);
-        assert!(!open_url("javascript:alert(1)").succeeded);
-        assert!(!open_url("https://").succeeded);
+        for url in ["file:///C:/test", "javascript:alert(1)", "https://"] {
+            assert!(!open_url(url).succeeded);
+        }
     }
-
     #[test]
-    fn process_deadlines_are_enforced() {
-        #[cfg(unix)]
-        let command = {
-            let mut command = Command::new("/bin/sleep");
-            command.arg("5");
-            command
-        };
-
-        #[cfg(windows)]
-        let command = {
-            let mut command = Command::new("powershell.exe");
-            command.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 5"]);
-            command
-        };
-
+    fn only_explicit_existing_executables_are_allowed() {
+        assert!(!is_application_path(Path::new("notepad.exe")));
+        assert!(!is_application_path(Path::new(r"C:\missing\app.cmd")));
+        assert!(!is_application_path(Path::new(r"C:\missing\app.exe")));
+        assert!(is_application_path(&system_powershell().unwrap()));
+    }
+    fn sleeper() -> Command {
+        let mut command = Command::new(system_powershell().unwrap());
+        command.creation_flags(CREATE_NO_WINDOW).args([
+            "-NoProfile",
+            "-Command",
+            "Start-Sleep -Seconds 30",
+        ]);
+        command
+    }
+    #[test]
+    fn gui_launch_returns_without_waiting_or_killing() {
+        let mut child = launch_application(sleeper()).unwrap();
+        let still_running = child.try_wait().unwrap().is_none();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(still_running);
+    }
+    #[test]
+    fn helper_deadlines_are_enforced() {
         assert_eq!(
-            run_process(command, Duration::from_millis(50)),
+            run_process(sleeper(), Duration::from_millis(50)),
             ProcessResult::TimedOut
         );
     }

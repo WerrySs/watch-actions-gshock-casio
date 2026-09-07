@@ -28,6 +28,10 @@ watchbridge-core = { version = "0.1.0", path = "../core" }
 [target.'cfg(windows)'.dependencies]
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 window-vibrancy = "0.8.0"
+windows-sys = { version = "0.61.2", features = ["Win32_System_Shutdown", "Win32_System_SystemInformation"] }
+
+[dev-dependencies]
+tempfile = "3.23.0"
 
 [build-dependencies]
 slint-build = "1.14.1"

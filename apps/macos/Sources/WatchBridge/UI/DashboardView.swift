@@ -149,7 +149,7 @@ struct DashboardView: View {
 
     private var pending: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(eyebrow: "Pending", title: "Will be sent on the next full connection")
+            SectionTitle(eyebrow: "Pending · \(store.currentWatch?.title ?? "No physical watch")", title: "Will be sent to this watch on its next full connection")
             Tile(padding: 8) {
                 VStack(spacing: 2) {
                     ForEach(store.pending) { item in
@@ -229,6 +229,7 @@ struct StatTile: View {
                     .frame(height: 5)
                 }
             }
+            .frame(height: 64, alignment: .top)
         }
     }
 }

@@ -1,59 +1,42 @@
 # Architecture
 
-WatchBridge uses native presentation on each platform and shares the code that benefits most from one implementation.
+WatchBridge has two desktop clients and a shared Rust core, without a web server, browser runtime, account service or cloud synchronization.
 
-## Components
+| Component | Responsibility |
+| --- | --- |
+| `crates/core` | Packet codecs, supported-model validation, Rust state schema, persistence and C ABI |
+| `apps/macos` | SwiftUI/AppKit, CoreBluetooth, Mac actions, local collection and editors |
+| `crates/windows` | Rust/Slint, btleplug/WinRT Bluetooth, Windows actions and collection |
+| `crates/xtask` | macOS static-library preparation and universal app packaging |
 
-```text
-Compatible watch
-      │ Bluetooth LE
-      ├──────────────► macOS: CoreBluetooth + SwiftUI/AppKit
-      │                               │
-      │                               ▼ C ABI
-      └──────────────► Windows: btleplug + Slint ─────► Rust core
-                                                        │
-                                                        ├─ protocol codec
-                                                        ├─ model validation
-                                                        ├─ bounded persistence
-                                                        └─ cached state/history
-```
+macOS uses native system materials, menus and controls. Windows uses compiled Slint controls with native Windows APIs and requests Mica where supported; it is **not WinUI**. An opaque fallback remains available. See the platform feature matrix in the [README](../README.md).
 
-The macOS client stays in Swift because SwiftUI, AppKit visual-effect materials, CoreBluetooth, the menu bar, Shortcuts, and ServiceManagement provide a more coherent Mac experience than a cross-platform widget toolkit. It links the Rust core as a static library through the small `CWatchBridge` header.
+## Local state and migration
 
-The Windows client is Rust end to end. Slint renders the interface, `btleplug` handles Bluetooth LE, and Mica is requested through the native window handle. Unsupported Windows versions retain the opaque fallback styling.
+Windows stores Rust `AppData` schema 2 in `state.json`. macOS keeps its Swift Codable files and a versioned `pending-by-watch-v2.json`. These formats are **not interchangeable**: cross-platform import/export is not implemented. Locations and recovery are in [Installation](INSTALLATION.md).
 
-## State model
+Both clients cache watch snapshots and bounded history. The dashboard favorite is a presentation choice, not permission to redirect a write. Prepared changes belong to a specific linked physical watch ID. Legacy global queues are retained but never executed; recreate them with an explicit target.
 
-`AppData` is the portable source of truth for:
-
-- saved and manually registered watches;
-- favorite selection and exact configured model;
-- the latest snapshot read from each watch;
-- pending changes to apply on the next connection;
-- allowlisted computer actions; and
-- bounded connection history.
-
-Loaded data is normalized before use. The model caps collection sizes and text lengths, discards invalid identifiers, bounds numeric values, and prevents a manually registered or never-connected watch from becoming trusted.
-
-The two platform clients currently keep separate local state because operating-system app data directories are intentionally local. The JSON schema is compatible for future explicit export/import without introducing cloud synchronization.
+Failed state reads or saves pause subsequent writes and actions. Original files are not replaced with empty defaults after decode errors. Rust rejects newer schemas; the Swift pending-queue decoder rejects unknown versions and invalid entries. Cached measurements are last-known readings, not live data.
 
 ## Connection lifecycle
 
-1. The client passively scans for the documented compatible service or manufacturer-prefixed device name.
-2. The physical watch initiates a short session through one of its supported button gestures or scheduled connection windows.
-3. WatchBridge identifies the physical device and safely associates a single matching manual record when possible.
-4. The gesture is decoded before any optional computer action runs.
-5. Actions run only if that physical device has previously connected and was explicitly trusted.
-6. Current condition and, for `CNCT`, the full supported snapshot are read.
-7. Bounded pending changes are written, with time sent last because the watch may disconnect after receiving it.
-8. The session result and latest snapshot are persisted before returning to passive discovery.
+1. Discover an explicitly supported, manufacturer-prefixed Bluetooth name. A service UUID alone is insufficient.
+2. Establish the expected GATT service and decode a recognized connection event.
+3. Keep physical devices separate. Manual registrations are linked only through a user action, which resets trust.
+4. Run an allowlisted action only when the physical device is trusted. Reserved events do nothing. An in-flight action blocks overlapping launches.
+5. Read condition; perform the extended refresh for CNCT.
+6. On CNCT, apply only that device's queue. Remove a change only after acknowledged writes, and only if its value has not since changed.
+7. Send time last. A dropped connection does not prove synchronization succeeded.
+8. Persist the result and disconnect, retaining unconfirmed work. Windows accepts cancellation during a session; macOS fails pending requests on disconnection.
 
-## Security boundaries
+Names and local identifiers are **not cryptographic authentication**. OS Bluetooth security and explicit user authorization remain part of the trust boundary.
 
-- Bluetooth packet parsing rejects short or malformed frames.
-- Requests and operating-system actions have deadlines.
-- URLs are limited to HTTP and HTTPS with a host.
-- There is no arbitrary command or script action.
-- User photos are decoded and re-encoded before storage; original metadata and filenames are not retained.
-- State files and images have explicit size limits and reject symbolic-link indirection.
-- CI tokens default to read-only, third-party workflow actions are not used, and every referenced GitHub action is pinned to a full commit SHA.
+## Resource and security boundaries
+
+- Requests, setup and helper processes have deadlines. A launched user application is intentionally not killed by a helper timeout.
+- Mac GATT writes, including handshake replies, share a serialized acknowledgement path.
+- State files are size-limited and atomically replaced. Direct file/parent symlink paths are rejected; this is not a defense against a compromised same-user process.
+- Windows command delivery, histories, traces, watch collections and queues are bounded.
+- Mac photos are decoded/re-encoded locally with generated filenames. No photo API or scraping is used.
+- Workflow tokens are read-only except in the isolated publishing job. Actions use full-SHA pins; signing secrets never enter pull-request jobs.

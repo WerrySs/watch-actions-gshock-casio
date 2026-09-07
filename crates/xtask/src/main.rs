@@ -169,6 +169,10 @@ fn package_macos(requested_version: Option<&str>) -> anyhow::Result<()> {
         resources.join("PrivacyInfo.xcprivacy"),
     )?;
     fs::copy(root.join("LICENSE"), resources.join("LICENSE.txt"))?;
+    fs::copy(
+        root.join("THIRD_PARTY_NOTICES.md"),
+        resources.join("THIRD_PARTY_NOTICES.md"),
+    )?;
     copy_directory(&package.join("Resources/Assets"), &resources.join("Assets"))?;
 
     let plist = contents.join("Info.plist");

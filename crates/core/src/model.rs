@@ -4,7 +4,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 const MAXIMUM_WATCHES: usize = 100;
 const MAXIMUM_PENDING_CHANGES: usize = 32;
 const MAXIMUM_HISTORY_RECORDS: usize = 300;
@@ -503,6 +503,9 @@ impl Default for ActionsConfig {
 
 impl ActionsConfig {
     pub fn action(&self, event: WatchButtonEvent) -> WatchAction {
+        if event == WatchButtonEvent::Unknown {
+            return WatchAction::default();
+        }
         self.actions.get(&event).cloned().unwrap_or_default()
     }
 }
@@ -597,6 +600,9 @@ pub struct AppData {
     pub preferred_model: String,
     pub actions: ActionsConfig,
     pub pending_changes: Vec<PendingChange>,
+    /// Legacy unscoped entries above are preserved but never executed.
+    #[serde(default)]
+    pub pending_by_watch: BTreeMap<String, Vec<PendingChange>>,
     pub history: Vec<ConnectionRecord>,
 }
 
@@ -609,12 +615,49 @@ impl Default for AppData {
             preferred_model: "GW-B5600".to_owned(),
             actions: ActionsConfig::default(),
             pending_changes: Vec::new(),
+            pending_by_watch: BTreeMap::new(),
             history: Vec::new(),
         }
     }
 }
 
 impl AppData {
+    /// Explicit user-requested association; discovering a similar name never calls this.
+    pub fn link_registration(&mut self, manual_id: &str, physical_id: &str) -> bool {
+        let Some(manual) = self
+            .watches
+            .iter()
+            .find(|w| {
+                w.id == manual_id
+                    && w.manually_registered
+                    && !w.is_linked()
+                    && is_supported_model(w.effective_model())
+            })
+            .cloned()
+        else {
+            return false;
+        };
+        let Some(physical) = self.watches.iter_mut().find(|w| {
+            w.id == physical_id
+                && !w.manually_registered
+                && w.is_linked()
+                && is_supported_model(&w.detected_model)
+                && same_watch_family(&w.detected_model, manual.effective_model())
+        }) else {
+            return false;
+        };
+        physical.configured_model = Some(manual.effective_model().to_owned());
+        if !manual.nickname.is_empty() {
+            physical.nickname = manual.nickname;
+        }
+        physical.allows_computer_actions = false;
+        self.watches.retain(|w| w.id != manual_id);
+        if self.favorite_watch_id.as_deref() == Some(manual_id) {
+            self.favorite_watch_id = Some(physical_id.to_owned());
+        }
+        true
+    }
+
     pub fn panel_watch(&self) -> Option<&SavedWatch> {
         self.favorite_watch_id
             .as_deref()
@@ -631,10 +674,40 @@ impl AppData {
         self.watches.iter_mut().find(|watch| watch.id == id)
     }
 
-    pub fn queue_change(&mut self, change: PendingChange) {
+    pub fn queue_change(&mut self, watch_id: &str, change: PendingChange) -> bool {
+        if !self.watches.iter().any(|watch| {
+            watch.id == watch_id
+                && watch.is_linked()
+                && !watch.manually_registered
+                && is_supported_model(&watch.detected_model)
+        }) {
+            return false;
+        }
         let id = change.id();
-        self.pending_changes.retain(|existing| existing.id() != id);
-        self.pending_changes.push(change);
+        let queue = self
+            .pending_by_watch
+            .entry(watch_id.to_owned())
+            .or_default();
+        queue.retain(|existing| existing.id() != id);
+        if queue.len() >= MAXIMUM_PENDING_CHANGES {
+            return false;
+        }
+        queue.push(change);
+        true
+    }
+
+    pub fn pending_for(&self, watch_id: &str) -> Vec<PendingChange> {
+        self.pending_by_watch
+            .get(watch_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn acknowledge_change(&mut self, watch_id: &str, change: &PendingChange) {
+        if let Some(queue) = self.pending_by_watch.get_mut(watch_id) {
+            // Do not discard an edit made while a previous value was in flight.
+            queue.retain(|pending| pending != change);
+        }
     }
 
     pub fn trim_for_storage(&mut self) {
@@ -653,7 +726,9 @@ impl AppData {
             if let Some(configured) = &watch.configured_model {
                 watch.configured_model = Some(normalize_model(configured));
             }
-            watch.allows_computer_actions &= watch.is_linked() && !watch.manually_registered;
+            watch.allows_computer_actions &= watch.is_linked()
+                && !watch.manually_registered
+                && is_supported_model(&watch.detected_model);
             normalize_snapshot(&mut watch.snapshot);
             true
         });
@@ -692,6 +767,16 @@ impl AppData {
             normalized_pending.push(change);
         }
         self.pending_changes = normalized_pending;
+        self.pending_by_watch.retain(|id, queue| {
+            if !identifiers.contains(id) {
+                return false;
+            }
+            queue.truncate(MAXIMUM_PENDING_CHANGES);
+            for change in queue {
+                normalize_pending_change(change);
+            }
+            true
+        });
 
         self.history.truncate(MAXIMUM_HISTORY_RECORDS);
         self.history.retain_mut(|record| {
@@ -897,6 +982,23 @@ pub fn model_from_bluetooth_name(name: &str) -> String {
         })
 }
 
+pub fn is_supported_model(model: &str) -> bool {
+    let normalized = normalize_model(model);
+    KNOWN_MODELS.iter().any(|(known, _)| {
+        normalized.strip_prefix(known).is_some_and(|suffix| {
+            matches!(suffix, "" | "ER" | "DR" | "JF" | "CR" | "JR" | "EF" | "DF")
+        })
+    })
+}
+
+pub fn is_supported_bluetooth_name(name: &str) -> bool {
+    let name = name.trim().to_ascii_uppercase();
+    ["CASIO ", "CASIO_", "CASIO-"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        && is_supported_model(&model_from_bluetooth_name(&name))
+}
+
 pub fn compatible_watch_name(model: &str) -> String {
     format!("CASIO-compatible {}", normalize_model(model))
 }
@@ -976,10 +1078,64 @@ mod tests {
 
     #[test]
     fn queued_changes_replace_older_values_for_the_same_slot() {
-        let mut data = AppData::default();
-        data.queue_change(PendingChange::Timer(60));
-        data.queue_change(PendingChange::Timer(120));
-        assert_eq!(data.pending_changes, vec![PendingChange::Timer(120)]);
+        let mut data = AppData::demo();
+        let id = data.watches[0].id.clone();
+        assert!(data.queue_change(&id, PendingChange::Timer(60)));
+        assert!(data.queue_change(&id, PendingChange::Timer(120)));
+        assert_eq!(data.pending_for(&id), vec![PendingChange::Timer(120)]);
+        assert!(data.pending_for("another-watch").is_empty());
+        data.acknowledge_change(&id, &PendingChange::Timer(60));
+        assert_eq!(data.pending_for(&id).len(), 1);
+        data.acknowledge_change("another-watch", &PendingChange::Timer(120));
+        assert_eq!(data.pending_for(&id).len(), 1);
+        data.acknowledge_change(&id, &PendingChange::Timer(120));
+        assert!(data.pending_for(&id).is_empty());
+    }
+
+    #[test]
+    fn legacy_and_manual_queues_are_never_executed() {
+        let mut data = AppData::demo();
+        data.pending_changes.push(PendingChange::SyncTime);
+        assert!(data.pending_for(&data.watches[0].id).is_empty());
+        let manual = SavedWatch::manual("GW-B5600", "Not paired");
+        let id = manual.id.clone();
+        data.watches.push(manual);
+        assert!(!data.queue_change(&id, PendingChange::Timer(60)));
+    }
+
+    #[test]
+    fn explicit_link_preserves_snapshot_but_does_not_grant_trust() {
+        let mut data = AppData::demo();
+        let physical = data.watches[0].id.clone();
+        let manual = SavedWatch::manual("GW-B5600BP-1", "Chosen nickname");
+        let id = manual.id.clone();
+        data.watches.push(manual);
+        assert!(!data.link_registration(&id, "missing"));
+        assert!(data.link_registration(&id, &physical));
+        assert_eq!(data.watches.len(), 1);
+        assert!(!data.watches[0].allows_computer_actions);
+        assert_eq!(data.watches[0].snapshot.battery_percent, Some(100));
+    }
+
+    #[test]
+    fn compatibility_is_not_inferred_from_a_brand_or_service() {
+        for supported in ["GW-B5600", "GW-B5600BP-1", "GW-B5600BP-1ER"] {
+            assert!(is_supported_model(supported));
+        }
+        for unknown in [
+            "CASIO",
+            "F-91W",
+            "GW-B56000",
+            "GW-B5600UNKNOWN",
+            "GMW-B5000",
+            "",
+        ] {
+            assert!(!is_supported_model(unknown));
+            assert!(!is_supported_bluetooth_name(unknown));
+        }
+        assert!(is_supported_bluetooth_name("CASIO GW-B5600"));
+        assert!(!is_supported_bluetooth_name("CASIO"));
+        assert!(!is_supported_bluetooth_name("OTHER GW-B5600"));
     }
 
     #[test]

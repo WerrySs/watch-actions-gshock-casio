@@ -12,6 +12,14 @@ enum RustCore {
         ownedString(value, using: wb_normalize_model)
     }
 
+    static func supports(model: String) -> Bool {
+        model.withCString { wb_is_supported_model($0) }
+    }
+
+    static func supports(bluetoothName: String) -> Bool {
+        bluetoothName.withCString { wb_is_supported_bluetooth_name($0) }
+    }
+
     static func model(fromBluetoothName value: String) -> String {
         ownedString(value, using: wb_model_from_bluetooth_name)
     }

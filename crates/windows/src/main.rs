@@ -26,7 +26,7 @@ slint::include_modules!();
 
 fn main() -> anyhow::Result<()> {
     let ui = MainWindow::new().context("could not create the WatchBridge window")?;
-    let demo = env_flag("--demo");
+    let demo = env_flag("--demo") || env_flag("--smoke-test");
     let state = if demo {
         SharedState::demo()
     } else {
@@ -34,7 +34,8 @@ fn main() -> anyhow::Result<()> {
     };
 
     #[cfg(target_os = "windows")]
-    let bluetooth = (!demo).then(|| bluetooth::BluetoothController::start(Arc::clone(&state)));
+    let bluetooth = (!demo && state.can_mutate())
+        .then(|| bluetooth::BluetoothController::start(Arc::clone(&state)));
 
     #[cfg(not(target_os = "windows"))]
     state.runtime.write().set(
@@ -50,6 +51,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     refresh_ui(&ui, &state);
+    if env_flag("--smoke-test") {
+        return Ok(());
+    }
     let refresh_timer = Timer::default();
     let weak = ui.as_weak();
     let refresh_state = Arc::clone(&state);
@@ -96,6 +100,24 @@ fn application_state_path() -> anyhow::Result<std::path::PathBuf> {
 }
 
 fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
+    ui.on_link_registration({
+        let state = Arc::clone(&state);
+        move |manual, physical| {
+            if !state.can_mutate() {
+                return;
+            }
+            let linked = state
+                .data
+                .write()
+                .link_registration(manual.as_str(), physical.as_str());
+            if linked {
+                state.save();
+                state.trace(
+                    "Linked registration to the selected physical watch; actions remain blocked",
+                );
+            }
+        }
+    });
     ui.on_select_navigation({
         let weak = ui.as_weak();
         move |index| {
@@ -108,13 +130,22 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
     ui.on_register_watch({
         let state = Arc::clone(&state);
         move |model, nickname| {
+            if !state.can_mutate() {
+                return;
+            }
             let model = sanitize_single_line(model.as_str(), 48);
-            if model.is_empty() {
-                state.trace("A watch was not added because its model was empty");
+            if !watchbridge_core::model::is_supported_model(&model) {
+                state.runtime.write().set(
+                    watchbridge_core::model::ConnectionPhase::Error,
+                    "Choose a supported GW-B5600 model. Other families are not supported.",
+                );
                 return;
             }
             let mut watch = SavedWatch::manual(&model, nickname.as_str());
             let mut data = state.data.write();
+            if data.watches.len() >= 100 {
+                return;
+            }
             if data.favorite_watch_id.is_none() {
                 data.favorite_watch_id = Some(watch.id.clone());
             }
@@ -130,6 +161,9 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
     ui.on_make_favorite({
         let state = Arc::clone(&state);
         move |identifier| {
+            if !state.can_mutate() {
+                return;
+            }
             let identifier = identifier.as_str();
             let mut data = state.data.write();
             if data.watches.iter().any(|watch| watch.id == identifier) {
@@ -143,6 +177,9 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
     ui.on_toggle_trust({
         let state = Arc::clone(&state);
         move |identifier| {
+            if !state.can_mutate() {
+                return;
+            }
             let mut data = state.data.write();
             if let Some(watch) = data
                 .watches
@@ -150,6 +187,7 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
                 .find(|watch| watch.id == identifier.as_str())
                 && watch.is_linked()
                 && !watch.manually_registered
+                && watchbridge_core::model::is_supported_model(&watch.detected_model)
             {
                 watch.allows_computer_actions = !watch.allows_computer_actions;
             }
@@ -161,6 +199,9 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
     ui.on_change_action({
         let state = Arc::clone(&state);
         move |code, selected_index, value| {
+            if !state.can_mutate() {
+                return;
+            }
             let Some(event) = event_for_code(code.as_str()) else {
                 return;
             };
@@ -185,6 +226,9 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
     ui.on_change_action_value({
         let state = Arc::clone(&state);
         move |code, value| {
+            if !state.can_mutate() {
+                return;
+            }
             let Some(event) = event_for_code(code.as_str()) else {
                 return;
             };
@@ -208,13 +252,20 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
             if action.kind != ActionKind::None {
                 #[cfg(target_os = "windows")]
                 {
+                    if !state.begin_action() {
+                        return;
+                    }
                     let state = Arc::clone(&state);
-                    let _ = std::thread::Builder::new()
+                    let failure_state = Arc::clone(&state);
+                    let result = std::thread::Builder::new()
                         .name("watchbridge-action-test".to_owned())
                         .spawn(move || {
                             let outcome = actions::run_sync(&action);
-                            state.runtime.write().last_action_result = Some(outcome.summary);
+                            state.finish_action(outcome.summary);
                         });
+                    if result.is_err() {
+                        failure_state.finish_action("Could not start the action worker".to_owned());
+                    }
                 }
             }
         }
@@ -246,7 +297,11 @@ fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
             .map_or_else(|| "Add or connect a watch".to_owned(), SavedWatch::title)
             .into(),
     );
-    ui.set_status_text(runtime.message.into());
+    ui.set_status_text(if !shared.can_mutate() {
+        "Local data is protected. Restore a valid backup and restart.".into()
+    } else {
+        runtime.message.into()
+    });
     ui.set_battery_text(
         watch
             .and_then(|item| item.snapshot.battery_percent)
@@ -315,12 +370,35 @@ fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
             hint: action.kind.help().into(),
         }
     });
+    ui.set_first_action_rows(ui_model(action_rows[..2].to_vec()));
+    ui.set_second_action_rows(ui_model(action_rows[2..].to_vec()));
     ui.set_action_rows(ui_model(action_rows));
 
     let watch_rows = data
         .watches
         .iter()
         .map(|watch| WatchRow {
+            link_target_id: if watch.manually_registered {
+                data.watches
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.is_linked()
+                            && !candidate.manually_registered
+                            && watchbridge_core::model::is_supported_model(
+                                &candidate.detected_model,
+                            )
+                            && watchbridge_core::model::same_watch_family(
+                                &candidate.detected_model,
+                                watch.effective_model(),
+                            )
+                    })
+                    .max_by_key(|candidate| candidate.last_seen)
+                    .map(|candidate| candidate.id.clone())
+                    .unwrap_or_default()
+                    .into()
+            } else {
+                "".into()
+            },
             id: watch.id.clone().into(),
             name: watch.title().into(),
             model: watch.effective_model().into(),
@@ -337,7 +415,9 @@ fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
                 .into(),
             favorite: data.favorite_watch_id.as_deref() == Some(&watch.id),
             trusted: watch.allows_computer_actions,
-            can_trust: watch.is_linked() && !watch.manually_registered,
+            can_trust: watch.is_linked()
+                && !watch.manually_registered
+                && watchbridge_core::model::is_supported_model(&watch.detected_model),
         })
         .collect::<Vec<_>>();
     ui.set_watch_rows(ui_model(watch_rows));

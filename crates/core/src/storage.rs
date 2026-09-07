@@ -25,6 +25,16 @@ pub enum StorageError {
 }
 
 pub fn load(path: &Path) -> Result<AppData, StorageError> {
+    let parent = path.parent().ok_or(StorageError::MissingParent)?;
+    match fs::symlink_metadata(parent) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(StorageError::UnsafePath);
+        }
+        Err(error) if error.kind() != io::ErrorKind::NotFound => {
+            return Err(StorageError::Io(error));
+        }
+        _ => {}
+    }
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(AppData::default()),
@@ -58,6 +68,11 @@ pub fn save(path: &Path, data: &AppData) -> Result<(), StorageError> {
     let parent_metadata = fs::symlink_metadata(parent)?;
     if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
         return Err(StorageError::UnsafePath);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     }
     if path.exists() {
         let metadata = fs::symlink_metadata(path)?;
@@ -111,6 +126,18 @@ mod tests {
         assert!(loaded.watches.is_empty());
     }
 
+    #[test]
+    fn newer_schema_is_rejected_without_rewriting_the_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.json");
+        let mut data = AppData::demo();
+        data.schema_version = SCHEMA_VERSION + 1;
+        let bytes = serde_json::to_vec(&data).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        assert!(matches!(load(&path), Err(StorageError::NewerSchema)));
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
+
     #[cfg(unix)]
     #[test]
     fn symbolic_link_state_files_are_rejected() {
@@ -123,6 +150,12 @@ mod tests {
         symlink(&target, &linked).unwrap();
 
         assert!(matches!(load(&linked), Err(StorageError::UnsafePath)));
+        let linked_directory = directory.path().join("linked-directory");
+        symlink(directory.path(), &linked_directory).unwrap();
+        assert!(matches!(
+            load(&linked_directory.join("target.json")),
+            Err(StorageError::UnsafePath)
+        ));
         assert!(matches!(
             save(&linked, &AppData::default()),
             Err(StorageError::UnsafePath)

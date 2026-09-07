@@ -7,9 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to package without publishing
+        description: Workspace version to package
         required: true
         default: "0.1.0"
+      publish_preview:
+        description: Publish a private prerelease (may be unsigned; stable releases still require signing)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,6 +50,10 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
             is_tag=true
           else
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "Manual release builds must use main." >&2
+              exit 1
+            fi
             version="$INPUT_VERSION"
             is_tag=false
           fi
@@ -60,6 +68,26 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "is_tag=$is_tag" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Release quality gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy,rustfmt
+      - name: Validate shared code
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked --package watchbridge-core
+          cargo clippy --locked --package watchbridge-core --package xtask --all-targets -- -D warnings
+
+  security:
+    name: Release dependency gate
+    uses: ./.github/workflows/security.yml
 
   macos:
     name: Package macOS
@@ -124,7 +152,12 @@ jobs:
         env:
           WATCHBRIDGE_BUILD_NUMBER: ${{ github.run_number }}
           WATCHBRIDGE_UNIVERSAL: "1"
-        run: cargo xtask package-macos "${{ needs.metadata.outputs.version }}"
+        run: |
+          cargo xtask prepare-macos
+          swift test --package-path apps/macos
+          cargo xtask package-macos "${{ needs.metadata.outputs.version }}"
+          lipo dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge -verify_arch arm64 x86_64
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --smoke-test
       - name: Notarize and staple when configured
         id: notarize
         shell: bash
@@ -200,7 +233,10 @@ jobs:
         shell: pwsh
         run: rustup toolchain install 1.98.1 --profile minimal
       - name: Build Windows client
-        run: cargo build --locked --release --package watchbridge-windows
+        run: |
+          cargo test --locked --package watchbridge-core --package watchbridge-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release --package watchbridge-windows
       - name: Stage Windows application
         shell: pwsh
         env:
@@ -212,6 +248,10 @@ jobs:
           Copy-Item "target/release/watchbridge-windows.exe" "$folder/WatchBridge.exe"
           Copy-Item "LICENSE" "$folder/LICENSE.txt"
           Copy-Item "README.md" "$folder/README.md"
+          Copy-Item "THIRD_PARTY_NOTICES.md" "$folder/THIRD_PARTY_NOTICES.md"
+          $process = Start-Process -FilePath "$folder/WatchBridge.exe" -ArgumentList "--smoke-test" -PassThru
+          if (-not $process.WaitForExit(30000)) { $process.Kill(); throw "Windows startup smoke check timed out." }
+          if ($process.ExitCode -ne 0) { throw "Windows startup smoke check failed." }
       - name: Sign Windows executable when configured
         id: signing
         shell: pwsh
@@ -229,7 +269,8 @@ jobs:
           $certificate = Join-Path $env:RUNNER_TEMP "watchbridge-signing.pfx"
           [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
           $executable = "dist/windows/WatchBridge-v$env:VERSION-Windows-x64/WatchBridge.exe"
-          $signtool = (Get-Command signtool.exe -ErrorAction Stop).Source
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          if (-not $signtool) { throw "Windows SDK signing tool was not found." }
           & $signtool sign /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /f $certificate /p $env:CERTIFICATE_PASSWORD $executable
           if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
           & $signtool verify /pa /v $executable
@@ -258,15 +299,19 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Publish signed release
-    if: needs.metadata.outputs.is_tag == 'true'
-    needs: [metadata, macos, windows]
+    name: Publish verified artifacts
+    if: needs.metadata.outputs.is_tag == 'true' || inputs.publish_preview
+    needs: [metadata, quality, security, macos, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Require signed native applications
+        if: needs.metadata.outputs.is_tag == 'true'
         shell: bash
         env:
           MACOS_SIGNED: ${{ needs.macos.outputs.signed }}
@@ -282,6 +327,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
+          pattern: watchbridge-*
           merge-multiple: true
       - name: Verify checksums
         shell: bash
@@ -295,9 +341,20 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.metadata.outputs.version }}
+          IS_TAG: ${{ needs.metadata.outputs.is_tag }}
         run: |
-          gh release create "v$VERSION" dist/*.dmg dist/*.zip dist/*.sha256 \
-            --verify-tag \
-            --generate-notes \
-            --title "WatchBridge $VERSION"
+          set -euo pipefail
+          if [[ "$IS_TAG" == "true" ]]; then
+            tag="v$VERSION"
+            gh release create "$tag" dist/*.dmg dist/*.zip dist/*.sha256 \
+              --draft --verify-tag --generate-notes --title "WatchBridge $VERSION"
+          else
+            [[ "$(gh api "repos/$GH_REPO" --jq .private)" == "true" ]] || { echo "Preview publishing currently requires a private repository." >&2; exit 1; }
+            tag="preview-v${VERSION}-${GITHUB_RUN_NUMBER}"
+            gh release create "$tag" dist/*.dmg dist/*.zip dist/*.sha256 \
+              --draft --prerelease --target "$GITHUB_SHA" \
+              --notes-file docs/PREVIEW_RELEASE.md --title "WatchBridge $VERSION · private preview $GITHUB_RUN_NUMBER"
+          fi
+          gh release edit "$tag" --draft=false

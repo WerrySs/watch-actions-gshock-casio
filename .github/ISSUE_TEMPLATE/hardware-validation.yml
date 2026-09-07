@@ -1,0 +1,38 @@
+name: Hardware validation
+description: Report reproducible button-action results from a watch you own.
+title: "[Hardware]: "
+labels: [hardware, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include Bluetooth addresses, unique device IDs, personal reminder text or unredacted traces. A model support request alone is not validation."
+  - type: input
+    id: model
+    attributes:
+      label: Exact model and module
+      placeholder: GW-B5600BP-1 / module 3461
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS version, architecture and WatchBridge release or commit
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Gesture results
+      description: For FIND, TIME, CNCT and AUTO, say tested/pass/fail/not tested. Include trust blocked/allowed behavior and reconnect results.
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: State and write results
+      description: Note condition/history, time synchronization and queued writes. Confirm a change for watch A was not sent to watch B if you tested two devices.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence and reproduction steps
+      description: Attach screenshots with personal data removed, expected behavior, actual behavior and relevant official manual references.

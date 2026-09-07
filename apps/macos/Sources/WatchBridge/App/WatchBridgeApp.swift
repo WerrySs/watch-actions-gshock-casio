@@ -3,9 +3,13 @@ import SwiftUI
 @main
 @MainActor
 struct WatchBridgeApp: App {
-    @State private var store = WatchStore()
+    @State private var store = WatchStore(bluetooth: !CommandLine.arguments.contains("--snapshot") && !CommandLine.arguments.contains("--probe") && !CommandLine.arguments.contains("--smoke-test"))
 
     init() {
+        if CommandLine.arguments.contains("--smoke-test") {
+            guard RustCore.supports(model: "GW-B5600"), RustCore.decodeButton([]) == .unknown else { exit(1) }
+            exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), CommandLine.arguments.count > i + 1 {
             Snapshotter.run(into: URL(fileURLWithPath: CommandLine.arguments[i + 1]))
             exit(0)

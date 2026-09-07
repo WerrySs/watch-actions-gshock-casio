@@ -1,4 +1,11 @@
 import Foundation
+import Observation
+
+@MainActor @Observable
+final class PersistenceStatus {
+    static let shared = PersistenceStatus()
+    var failure: String?
+}
 
 /// Local files under Application Support/WatchBridge. The directory and files are private
 /// to the current user because they can contain reminder titles and configured actions.
@@ -10,36 +17,53 @@ enum Persistence {
             .appendingPathComponent("WatchBridge", isDirectory: true)
     }()
 
-    static func load<T: Decodable>(_ type: T.Type, from name: String) -> T? {
-        guard ensurePrivateDirectory(directory),
-              let url = url(for: name),
-              isSafeRegularFile(url, maximumBytes: maximumFileBytes),
-              let data = try? Data(contentsOf: url),
-              data.count <= maximumFileBytes else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(T.self, from: data)
+    @MainActor
+    static func load<T: Decodable>(_ type: T.Type, from name: String, in folder: URL = directory) -> T? {
+        do {
+            guard ensurePrivateDirectory(folder), !name.isEmpty,
+                  name == URL(fileURLWithPath: name).lastPathComponent else { throw CocoaError(.fileReadNoPermission) }
+            let url = folder.appendingPathComponent(name)
+            do { _ = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) }
+            catch CocoaError.fileReadNoSuchFile { return nil }
+            guard isSafeRegularFile(url, maximumBytes: maximumFileBytes) else { throw CocoaError(.fileReadCorruptFile) }
+            let data = try Data(contentsOf: url)
+            guard data.count <= maximumFileBytes else { throw CocoaError(.fileReadTooLarge) }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            PersistenceStatus.shared.failure = "Could not read \(name). Local data is protected: restore a valid backup and restart the app."
+            return nil
+        }
     }
 
-    static func save<T: Encodable>(_ value: T, as name: String) {
+    @MainActor @discardableResult
+    static func save<T: Encodable>(_ value: T, as name: String, in folder: URL = directory) -> Bool {
+        guard PersistenceStatus.shared.failure == nil else { return false }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(value),
               data.count <= maximumFileBytes,
-              ensurePrivateDirectory(directory),
-              let url = url(for: name),
-              isSafeWriteTarget(url) else { return }
+              ensurePrivateDirectory(folder), !name.isEmpty,
+              name == URL(fileURLWithPath: name).lastPathComponent,
+              isSafeWriteTarget(folder.appendingPathComponent(name)) else {
+            PersistenceStatus.shared.failure = "Local data could not be saved. Writes are paused; check the data folder and restart."
+            return false
+        }
+        let url = folder.appendingPathComponent(name)
         do {
             try data.write(to: url, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            return true
         } catch {
-            assertionFailure("Could not save \(name): \(error)")
+            PersistenceStatus.shared.failure = "Could not save \(name). Writes are paused; check the data folder and restart."
+            return false
         }
     }
 
-    static func remove(_ name: String) {
-        guard ensurePrivateDirectory(directory),
+    @MainActor static func remove(_ name: String) {
+        guard PersistenceStatus.shared.failure == nil, ensurePrivateDirectory(directory),
               let url = url(for: name),
               isSafeRegularFile(url, maximumBytes: maximumFileBytes) else { return }
         try? FileManager.default.removeItem(at: url)

@@ -32,7 +32,10 @@ final class WatchStore {
     private(set) var currentWatchID: String?
     private(set) var favoriteWatchID: String?
     private(set) var preferredModel = WatchModelVariant.generic.rawValue
-    private(set) var pending: [PendingChange] = []
+    private(set) var pendingQueue = PendingQueue()
+    private(set) var legacyPendingCount = 0
+    var pending: [PendingChange] { pendingQueue.pending(for: currentWatchID) }
+    var storageWarning: String? { PersistenceStatus.shared.failure }
     private(set) var log: [LogEntry] = []
     private(set) var config = ActionsConfig()
     private(set) var trace: [String] = []
@@ -41,13 +44,15 @@ final class WatchStore {
     @ObservationIgnored private let lock = AsyncLock()
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored private let persists: Bool
+    private(set) var actionRunning = false
 
     init(bluetooth: Bool = true) {
         central = WatchCentral(enabled: bluetooth)
         persists = bluetooth
         if bluetooth {
             config = Persistence.load(ActionsConfig.self, from: "config.json") ?? ActionsConfig()
-            pending = Persistence.load([PendingChange].self, from: "pending.json") ?? []
+            legacyPendingCount = (Persistence.load([PendingChange].self, from: "pending.json") ?? []).count
+            pendingQueue = Persistence.load(PendingQueue.self, from: "pending-by-watch-v2.json") ?? PendingQueue()
             log = Persistence.load([LogEntry].self, from: "log.json") ?? []
             watches = (Persistence.load([SavedWatch].self, from: "watches.json") ?? [])
                 .sorted { $0.lastSeen > $1.lastSeen }
@@ -162,6 +167,11 @@ final class WatchStore {
     // MARK: Bluetooth lifecycle
 
     private func handleManagerState(_ state: CBManagerState) {
+        guard storageWarning == nil else {
+            central.stopScanning()
+            message = storageWarning ?? "Local data is protected"
+            return
+        }
         switch state {
         case .poweredOn:
             if phase != .connected { phase = .waiting; message = "Waiting for the watch" }
@@ -190,11 +200,23 @@ final class WatchStore {
     }
 
     private func beginSession(name: String, identifier: UUID) {
+        guard storageWarning == nil, RustCore.supports(bluetoothName: name) else {
+            central.disconnect()
+            return
+        }
+        guard watches.count < 100 || watches.contains(where: { $0.id == identifier.uuidString }) else {
+            showNotice("The watch collection is full. No device was replaced.")
+            central.disconnect()
+            return
+        }
+        central.holdSession()
         rememberWatch(identifier: identifier, name: name)
+        restoreLastKnownState()
         Task { await runSession(name: name) }
     }
 
     private func runSession(name: String) async {
+        defer { central.disconnect(); central.releaseSession() }
         watchName = name
         lastSeen = .now
         phase = .connected
@@ -206,6 +228,7 @@ final class WatchStore {
             try await lock.withLock {
                 let features = try await central.request([WatchCode.bleFeatures], expect: WatchCode.bleFeatures)
                 let event = WatchProtocol.decodeButton(features)
+                guard event != .unknown else { throw BLEError.writeFailed("unsupported connection event; no action or settings sent") }
                 entry.event = event
                 lastEvent = event
                 flash(event)
@@ -228,11 +251,11 @@ final class WatchStore {
 
                 // Read and write first; time goes last because the watch may disconnect after receiving it.
                 if event == .leftLong { try await refreshAllLocked() }
-                entry.applied = try await applyPendingLocked()
+                if event == .leftLong { entry.applied = try await applyPendingLocked() }
 
-                if config.syncTimeOn.contains(event) || pending.contains(.syncTime) {
+                if config.syncTimeOn.contains(event) || (event == .leftLong && pending.contains(.syncTime)) {
                     entry.timeSynced = try await writeTimeLocked()
-                    pending.removeAll { $0 == .syncTime }
+                    if let id = currentWatchID { pendingQueue.acknowledge(.syncTime, for: id) }
                     persistPending()
                 }
                 message = entry.timeSynced ? "Time sent · \(event.title)" : "Connected · \(event.title)"
@@ -265,25 +288,36 @@ final class WatchStore {
     /// Applies a change now when connected, otherwise queues it. Returns true when applied.
     @discardableResult
     func save(_ change: PendingChange) async -> Bool {
+        guard change.isValid else { showNotice("The change contains an invalid value."); return false }
+        guard storageWarning == nil, let target = currentWatch,
+              target.connectionCount > 0, target.manuallyRegistered != true,
+              RustCore.supports(model: target.model) else {
+            showNotice(storageWarning ?? "Connect a supported physical watch before preparing changes.")
+            return false
+        }
+        let targetID = target.id
         if isConnected {
             do {
-                try await lock.withLock { try await apply(change) }
+                try await lock.withLock {
+                    guard currentWatchID == targetID else { throw BLEError.notConnected }
+                    try await apply(change)
+                }
                 updateCurrentWatch()
                 showNotice("Saved to the watch.")
                 return true
             } catch {
-                queue(change)
+                queue(change, for: targetID)
                 showNotice("The watch did not accept the change (\(error.localizedDescription)). It remains queued.")
                 return false
             }
         }
-        queue(change)
+        queue(change, for: targetID)
         showNotice("Saved. It will be sent when the watch connects.")
         return false
     }
 
     func discardPending(_ id: String) {
-        pending.removeAll { $0.id == id }
+        if let target = currentWatchID { pendingQueue.changes[target]?.removeAll { $0.id == id } }
         persistPending()
     }
 
@@ -310,11 +344,13 @@ final class WatchStore {
     }
 
     private func runAction(_ action: WatchAction, for event: WatchButtonEvent) {
-        guard action.kind != .none else { return }
+        guard storageWarning == nil, action.kind != .none, event != .unknown, !actionRunning else { return }
+        actionRunning = true
         // Persistent history never includes URLs, phrases, app names, or other configured values.
         addTrace("Action for \(event.display): \(action.kind.label)")
         Task { [weak self] in
             let result = await ActionRunner.run(action)
+            self?.actionRunning = false
             self?.addTrace("Action finished: \(result)")
         }
     }
@@ -365,7 +401,8 @@ final class WatchStore {
 
     func setAllowsMacActions(_ allowed: Bool, for watchID: String) {
         guard let index = watches.firstIndex(where: { $0.id == watchID }) else { return }
-        guard watches[index].connectionCount > 0 else {
+        guard watches[index].connectionCount > 0, watches[index].manuallyRegistered != true,
+              RustCore.supports(model: watches[index].model) else {
             showNotice("Pair the physical watch before trusting it to run actions.")
             return
         }
@@ -407,7 +444,7 @@ final class WatchStore {
         showNotice("The local copy was removed. Your original file was not changed.")
     }
 
-    /// Registers any watch model before Bluetooth has discovered a physical unit.
+    /// Registers a supported model before Bluetooth has discovered a physical unit.
     @discardableResult
     func registerWatch(model: String, nickname: String = "") -> String? {
         var cleanedModel = model
@@ -415,8 +452,8 @@ final class WatchStore {
             .replacingOccurrences(of: "_", with: "-")
             .uppercased()
         if cleanedModel.hasPrefix("CASIO ") { cleanedModel.removeFirst("CASIO ".count) }
-        guard !cleanedModel.isEmpty else {
-            showNotice("Enter the watch model.")
+        guard RustCore.supports(model: cleanedModel), watches.count < 100 else {
+            showNotice("Choose a supported GW-B5600 model (up to 100 saved watches).")
             return nil
         }
         let now = Date.now
@@ -443,13 +480,12 @@ final class WatchStore {
         return id
     }
 
-    private func queue(_ change: PendingChange) {
-        pending.removeAll { $0.id == change.id }
-        pending.append(change)
+    private func queue(_ change: PendingChange, for id: String) {
+        pendingQueue.enqueue(change, for: id)
         persistPending()
     }
 
-    private func persistPending() { if persists { Persistence.save(pending, as: "pending.json") } }
+    private func persistPending() { if persists { Persistence.save(pendingQueue, as: "pending-by-watch-v2.json") } }
     private func persistConfig() { if persists { Persistence.save(config, as: "config.json") } }
 
     private func rememberWatch(identifier: UUID, name: String) {
@@ -461,18 +497,8 @@ final class WatchStore {
             watches[index].model = model
             watches[index].displayName = SavedWatch.displayName(for: model)
             watches[index].lastSeen = now
-            watches[index].connectionCount += 1
-        } else if let manualIndex = uniqueManualMatch(for: model) {
-            let previousID = watches[manualIndex].id
-            watches[manualIndex].id = id
-            watches[manualIndex].model = model
-            watches[manualIndex].displayName = SavedWatch.displayName(for: model)
-            watches[manualIndex].lastSeen = now
-            watches[manualIndex].connectionCount = 1
-            if favoriteWatchID == previousID {
-                favoriteWatchID = id
-                if persists { Persistence.save(id, as: "favorite-watch.json") }
-            }
+            watches[index].connectionCount = min(watches[index].connectionCount, Int.max - 1) + 1
+            watches[index].manuallyRegistered = false
         } else {
             watches.append(SavedWatch(
                 id: id,
@@ -508,29 +534,40 @@ final class WatchStore {
         sortAndPersistWatches()
     }
 
-    private func uniqueManualMatch(for detectedModel: String) -> Int? {
-        let candidates = watches.indices.filter { index in
-            let watch = watches[index]
-            guard watch.connectionCount == 0, watch.manuallyRegistered == true else { return false }
-            if let detectedFamily = WatchModelVariant.matching(detectedModel),
-               let manualFamily = WatchModelVariant.matching(watch.effectiveModel) {
-                return detectedFamily.rawValue.hasPrefix("GW-B5600") && manualFamily.rawValue.hasPrefix("GW-B5600")
-            }
-            return watch.effectiveModel.caseInsensitiveCompare(detectedModel) == .orderedSame
-        }
-        return candidates.count == 1 ? candidates[0] : nil
+    func linkRegistration(_ manualID: String, to physicalID: String) {
+        guard storageWarning == nil,
+              let manual = watches.first(where: { $0.id == manualID && $0.manuallyRegistered == true && $0.connectionCount == 0 }),
+              let index = watches.firstIndex(where: { $0.id == physicalID && $0.connectionCount > 0 && $0.manuallyRegistered != true }),
+              RustCore.supports(model: watches[index].model), RustCore.supports(model: manual.effectiveModel) else { return }
+        watches[index].configuredModel = manual.effectiveModel
+        watches[index].nickname = manual.nickname
+        if let image = manual.imageFilename { watches[index].imageFilename = image }
+        watches[index].allowsMacActions = false
+        watches.removeAll { $0.id == manualID }
+        if favoriteWatchID == manualID { setFavoriteWatch(physicalID) }
+        if currentWatchID == manualID { currentWatchID = physicalID; restoreLastKnownState() }
+        sortAndPersistWatches()
+        showNotice("Registration linked to this physical watch. Actions remain blocked until you allow them.")
     }
 
     private func restoreLastKnownState() {
         guard let watch = currentWatch else { return }
+        alarms = Alarm.defaults; alarmsRead = false
+        reminders = Reminder.defaults; remindersRead = false
         battery = watch.lastBattery
         temperature = watch.lastTemperature
         lastSeen = watch.connectionCount > 0 ? watch.lastSeen : nil
         lastTimeSync = watch.lastTimeSync
         homeCity = watch.lastHomeCity
         timerSeconds = watch.lastTimerSeconds
-        if let saved = watch.lastAlarms { alarms = saved; alarmsRead = true }
-        if let saved = watch.lastReminders { reminders = saved; remindersRead = true }
+        if let saved = watch.lastAlarms, saved.count == 5,
+           saved.enumerated().allSatisfy({ $0.element.number == $0.offset + 1 && PendingChange.alarm($0.element).isValid }) {
+            alarms = saved; alarmsRead = true
+        }
+        if let saved = watch.lastReminders, saved.count == Reminder.slots,
+           saved.enumerated().allSatisfy({ $0.element.slot == $0.offset + 1 && PendingChange.reminder($0.element).isValid }) {
+            reminders = saved; remindersRead = true
+        }
         settings = watch.lastSettings
         autoTimeAdjust = watch.lastAutoTimeAdjust
         lastEvent = watch.lastEvent
@@ -592,13 +629,13 @@ final class WatchStore {
             lastAutoTimeAdjust: s.autoTimeAdjust,
             lastEvent: s.lastEvent
         ), SavedWatch(
-            id: "PREVIEW-MANUAL-F91W",
-            model: "F-91W",
-            displayName: "CASIO F-91W",
+            id: "PREVIEW-MANUAL-GWB5600",
+            model: "GW-B5600-2",
+            displayName: "CASIO GW-B5600-2",
             firstSeen: .now.addingTimeInterval(-3600 * 24 * 4),
             lastSeen: .now.addingTimeInterval(-3600 * 24 * 4),
             connectionCount: 0,
-            nickname: "The classic",
+            nickname: "Blue square",
             manuallyRegistered: true
         )]
         s.currentWatchID = previewID
@@ -607,7 +644,7 @@ final class WatchStore {
         s.config = ActionsConfig()
         s.config.actions[.leftLong] = WatchAction(kind: .say, value: "Time for a break")
         s.config.actions[.rightShort] = WatchAction(kind: .openApp, value: "Music")
-        s.pending = connected ? [] : [.reminder(r[2]), .syncTime]
+        if !connected { s.pendingQueue.changes[previewID] = [.reminder(r[2]), .syncTime] }
         s.log = [
             LogEntry(date: .now.addingTimeInterval(-90), event: .leftLong, battery: 100, temperature: 31, timeSynced: true, applied: ["Reminder 2: Gym"], watchID: previewID, watchModel: WatchModelVariant.redComposite.rawValue),
             LogEntry(date: .now.addingTimeInterval(-3600 * 5), event: .rightShort, battery: 100, temperature: 30, timeSynced: true, watchID: previewID, watchModel: WatchModelVariant.redComposite.rawValue),
@@ -623,7 +660,7 @@ final class WatchStore {
     }
 
     private func showNotice(_ text: String) {
-        notice = text
+        notice = storageWarning ?? text
         noticeTask?.cancel()
         noticeTask = Task {
             try? await Task.sleep(for: .seconds(4))
@@ -634,6 +671,7 @@ final class WatchStore {
     // MARK: Watch operations (always inside the asynchronous lock)
 
     private func apply(_ change: PendingChange) async throws {
+        guard storageWarning == nil, change.isValid else { throw BLEError.writeFailed("invalid change or protected local state") }
         switch change {
         case .reminder(let r): try await writeReminderLocked(r)
         case .alarm(let a): try await writeAlarmLocked(a)
@@ -651,7 +689,7 @@ final class WatchStore {
         for item in pending where item != .syncTime {
             try await apply(item)
             applied.append(item.summary)
-            pending.removeAll { $0.id == item.id }
+            if let id = currentWatchID { pendingQueue.acknowledge(item, for: id) }
             persistPending()
         }
         return applied
@@ -701,6 +739,7 @@ final class WatchStore {
 
     /// Replays daylight-saving and city state before sending the current time.
     private func writeTimeLocked() async throws -> Bool {
+        guard storageWarning == nil else { throw BLEError.writeFailed("local state is protected") }
         message = "Setting the watch time…"
         // Read and replay daylight-saving and city state. Missing optional responses do not
         // stop the operation because the time must be sent before the watch disconnects.
@@ -715,12 +754,7 @@ final class WatchStore {
         }
         guard central.isConnected else { throw BLEError.notConnected }
         let target = Date().addingTimeInterval(TimeInterval(config.timeOffsetSeconds))
-        do {
-            try await central.write(WatchProtocol.encodeTime(target))
-        } catch {
-            // The watch may disconnect after receiving the time; the write was already delivered.
-            addTrace("Time sent; the watch closed the connection (\(error.localizedDescription))")
-        }
+        try await central.write(WatchProtocol.encodeTime(target))
         lastTimeSync = .now
         return true
     }
@@ -742,7 +776,12 @@ final class WatchStore {
         message = "Reading the watch…"
         if let raw = try? await central.request([WatchCode.watchName], expect: WatchCode.watchName, timeout: 6) {
             let n = WatchProtocol.decodeName(raw)
-            if !n.isEmpty { watchName = n; updateCurrentWatch() }
+            if !n.isEmpty {
+                guard RustCore.supports(model: SavedWatch.modelName(from: n)) else {
+                    throw BLEError.writeFailed("the watch reports an unsupported model; no settings sent")
+                }
+                watchName = n; updateCurrentWatch()
+            }
         }
         homeCity = WatchProtocol.decodeCity(try await central.request([WatchCode.worldCities, 0], expect: WatchCode.worldCities))
         timerSeconds = WatchProtocol.decodeTimer(try await central.request([WatchCode.timer], expect: WatchCode.timer))
@@ -754,8 +793,10 @@ final class WatchStore {
             let title = try await central.request([WatchCode.reminderTitle, UInt8(slot)], expect: WatchCode.reminderTitle)
             let time = try await central.request([WatchCode.reminderTime, UInt8(slot)], expect: WatchCode.reminderTime)
             var r = Reminder(slot: slot)
-            r.title = WatchProtocol.decodeReminderTitle(title) ?? ""
-            _ = WatchProtocol.decodeReminderTime(time, into: &r)
+            guard let decodedTitle = WatchProtocol.decodeReminderTitle(title), WatchProtocol.decodeReminderTime(time, into: &r) else {
+                throw BLEError.writeFailed("unrecognized reminder response")
+            }
+            r.title = decodedTitle
             list[slot - 1] = r
         }
         reminders = list

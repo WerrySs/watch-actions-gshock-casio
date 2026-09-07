@@ -33,7 +33,7 @@ pub fn decode_button(data: &[u8]) -> WatchButtonEvent {
         2 => WatchButtonEvent::Find,
         3 => WatchButtonEvent::Automatic,
         4 => WatchButtonEvent::Time,
-        _ => WatchButtonEvent::Time,
+        _ => WatchButtonEvent::Unknown,
     }
 }
 
@@ -327,6 +327,13 @@ mod tests {
             packet[8] = value;
             assert_eq!(decode_button(&packet), event);
         }
+        for value in 5..=255 {
+            packet[8] = value;
+            assert_eq!(decode_button(&packet), WatchButtonEvent::Unknown);
+        }
+        assert_eq!(decode_button(&packet[..18]), WatchButtonEvent::Unknown);
+        packet[0] = 0xFF;
+        assert_eq!(decode_button(&packet), WatchButtonEvent::Unknown);
     }
 
     #[test]

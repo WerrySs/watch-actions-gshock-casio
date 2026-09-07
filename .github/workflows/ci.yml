@@ -98,8 +98,24 @@ jobs:
         run: cargo xtask prepare-macos
       - name: Test native macOS client
         run: swift test --package-path apps/macos
-      - name: Build native macOS client
-        run: swift build --package-path apps/macos --configuration release
+      - name: Package universal macOS review app
+        env:
+          WATCHBRIDGE_UNIVERSAL: "1"
+          WATCHBRIDGE_BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          cargo xtask package-macos
+          lipo dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge -verify_arch arm64 x86_64
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --smoke-test
+      - name: Upload macOS review downloads
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: WatchBridge-macOS-universal-review
+          path: |
+            dist/macos/*.dmg
+            dist/macos/*.zip
+            dist/macos/*.sha256
+          if-no-files-found: error
+          retention-days: 14
 
   windows:
     name: Windows client
@@ -130,3 +146,29 @@ jobs:
         run: cargo clippy --locked --package watchbridge-windows --all-targets -- -D warnings
       - name: Build Windows client
         run: cargo build --locked --release --package watchbridge-windows
+      - name: Package Windows review app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = ((cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json).packages | Where-Object name -eq "watchbridge-core").version
+          $folder = "dist/windows/WatchBridge"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item "target/release/watchbridge-windows.exe" "$folder/WatchBridge.exe"
+          Copy-Item "LICENSE" "$folder/LICENSE.txt"
+          Copy-Item "THIRD_PARTY_NOTICES.md", "README.md" $folder
+          $process = Start-Process -FilePath "$folder/WatchBridge.exe" -ArgumentList "--smoke-test" -PassThru
+          if (-not $process.WaitForExit(30000)) { $process.Kill(); throw "Windows startup smoke check timed out." }
+          if ($process.ExitCode -ne 0) { throw "Windows startup smoke check failed." }
+          $archive = "dist/windows/WatchBridge-v$version-Windows-x64.zip"
+          Compress-Archive -Path "$folder/*" -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $archive)" | Set-Content "dist/windows/WatchBridge-v$version-Windows-x64.sha256" -Encoding ascii
+      - name: Upload Windows review downloads
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: WatchBridge-Windows-x64-review
+          path: |
+            dist/windows/*.zip
+            dist/windows/*.sha256
+          if-no-files-found: error
+          retention-days: 14

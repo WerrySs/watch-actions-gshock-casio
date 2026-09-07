@@ -150,6 +150,18 @@ private struct SavedWatchCard: View {
                     .foregroundStyle(.secondary)
 
                     HStack(spacing: 10) {
+                        if watch.manuallyRegistered == true, watch.connectionCount == 0 {
+                            Menu("Link physical watch") {
+                                ForEach(store.watches.filter { $0.connectionCount > 0 && $0.manuallyRegistered != true && RustCore.supports(model: $0.model) }) { physical in
+                                    Button("\(physical.title) · \(Formatters.dateTime.string(from: physical.lastSeen))") {
+                                        store.linkRegistration(watch.id, to: physical.id)
+                                    }
+                                }
+                            }
+                            .help("Explicitly choose the physical unit represented by this saved registration")
+                            Text("Actions available after linking")
+                                .font(.system(size: 10)).foregroundStyle(Theme.text3)
+                        } else {
                         Toggle("Allow actions on this Mac", isOn: Binding(
                             get: { watch.canRunMacActions },
                             set: { store.setAllowsMacActions($0, for: watch.id) }
@@ -163,6 +175,7 @@ private struct SavedWatchCard: View {
                             Text(watch.connectionCount == 0 ? "Available after pairing" : "Blocked for safety")
                                 .font(.system(size: 10))
                                 .foregroundStyle(Theme.text3)
+                        }
                         }
                     }
                 }
@@ -252,7 +265,7 @@ private struct RegisterWatchSheet: View {
     private enum Kind: String, CaseIterable, Identifiable {
         case catalog, other
         var id: String { rawValue }
-        var title: String { self == .catalog ? "GW-B5600 family" : "Other model" }
+        var title: String { self == .catalog ? "GW-B5600 family" : "Exact regional variant" }
     }
 
     @Environment(WatchStore.self) private var store
@@ -292,7 +305,7 @@ private struct RegisterWatchSheet: View {
                         }
                     } else {
                         FieldLabel(label: "Watch model") {
-                            DarkField(placeholder: "For example, F-91W or AE-1200WH", text: $customModel)
+                            DarkField(placeholder: "For example, GW-B5600BP-1ER", text: $customModel)
                         }
                     }
 

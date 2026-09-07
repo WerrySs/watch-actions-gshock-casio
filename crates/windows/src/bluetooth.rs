@@ -18,7 +18,7 @@ use crate::actions;
 use crate::state::SharedState;
 use watchbridge_core::model::{
     ConnectionPhase, ConnectionRecord, PendingChange, SavedWatch, WatchButtonEvent, WatchSnapshot,
-    model_from_bluetooth_name, same_watch_family,
+    is_supported_bluetooth_name, model_from_bluetooth_name,
 };
 use watchbridge_core::protocol::{self, code};
 
@@ -37,12 +37,12 @@ pub enum BluetoothCommand {
 
 #[derive(Clone)]
 pub struct BluetoothController {
-    sender: mpsc::UnboundedSender<BluetoothCommand>,
+    sender: mpsc::Sender<BluetoothCommand>,
 }
 
 impl BluetoothController {
     pub fn start(shared: Arc<SharedState>) -> Self {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel(8);
         std::thread::Builder::new()
             .name("watchbridge-bluetooth".to_owned())
             .spawn(move || {
@@ -74,13 +74,13 @@ impl BluetoothController {
     }
 
     pub fn send(&self, command: BluetoothCommand) {
-        let _ = self.sender.send(command);
+        let _ = self.sender.try_send(command);
     }
 }
 
 async fn bluetooth_loop(
     shared: Arc<SharedState>,
-    mut commands: mpsc::UnboundedReceiver<BluetoothCommand>,
+    mut commands: mpsc::Receiver<BluetoothCommand>,
 ) -> Result<()> {
     let manager = Manager::new()
         .await
@@ -119,12 +119,10 @@ async fn bluetooth_loop(
                         start_scan(&adapter, &shared).await?;
                     }
                     Some(BluetoothCommand::Disconnect) => {
-                        disconnect_all(&adapter).await;
                         start_scan(&adapter, &shared).await?;
                     }
                     Some(BluetoothCommand::Shutdown) | None => {
                         let _ = adapter.stop_scan().await;
-                        disconnect_all(&adapter).await;
                         return Ok(());
                     }
                 }
@@ -152,8 +150,8 @@ async fn bluetooth_loop(
                         if let Some(name) = compatible_name(&peripheral).await? {
                             let _ = adapter.stop_scan().await;
                             shared.runtime.write().is_scanning = false;
-                            if let Err(error) = run_session(peripheral, name, shared.clone()).await {
-                                shared.trace(format!("Connection ended: {error}"));
+                            if run_session(peripheral, name, shared.clone(), &mut commands).await {
+                                return Ok(());
                             }
                             if shared.runtime.read().phase != ConnectionPhase::BluetoothOff {
                                 start_scan(&adapter, &shared).await?;
@@ -176,6 +174,11 @@ async fn bluetooth_loop(
 }
 
 async fn start_scan(adapter: &Adapter, shared: &SharedState) -> Result<()> {
+    if !shared.can_mutate() {
+        let _ = adapter.stop_scan().await;
+        shared.runtime.write().is_scanning = false;
+        return Ok(());
+    }
     adapter
         .start_scan(ScanFilter::default())
         .await
@@ -187,25 +190,13 @@ async fn start_scan(adapter: &Adapter, shared: &SharedState) -> Result<()> {
     Ok(())
 }
 
-async fn disconnect_all(adapter: &Adapter) {
-    if let Ok(peripherals) = adapter.peripherals().await {
-        for peripheral in peripherals {
-            if peripheral.is_connected().await.unwrap_or(false) {
-                let _ = peripheral.disconnect().await;
-            }
-        }
-    }
-}
-
 async fn compatible_name(peripheral: &Peripheral) -> Result<Option<String>> {
     let properties = peripheral.properties().await?;
     let Some(properties) = properties else {
         return Ok(None);
     };
-    let advertised_service = properties.services.contains(&SERVICE_UUID);
     let name = properties.local_name.unwrap_or_default();
-    let compatible_name = name.to_ascii_uppercase().starts_with("CASIO");
-    if advertised_service || compatible_name {
+    if is_supported_bluetooth_name(&name) {
         Ok(Some(if name.is_empty() {
             "Compatible Bluetooth watch".to_owned()
         } else {
@@ -236,22 +227,29 @@ impl WatchConnection {
         let characteristics = peripheral.characteristics();
         let request_characteristic = characteristics
             .iter()
-            .find(|characteristic| characteristic.uuid == REQUEST_UUID)
+            .find(|characteristic| {
+                characteristic.uuid == REQUEST_UUID && characteristic.service_uuid == SERVICE_UUID
+            })
             .cloned()
             .ok_or_else(|| anyhow!("the request characteristic is missing"))?;
         let features_characteristic = characteristics
             .iter()
-            .find(|characteristic| characteristic.uuid == FEATURES_UUID)
+            .find(|characteristic| {
+                characteristic.uuid == FEATURES_UUID && characteristic.service_uuid == SERVICE_UUID
+            })
             .cloned()
             .ok_or_else(|| anyhow!("the feature characteristic is missing"))?;
 
         let notifications = peripheral.notifications().await?;
         for characteristic in characteristics.iter().filter(|characteristic| {
-            characteristic
-                .properties
-                .intersects(CharPropFlags::NOTIFY | CharPropFlags::INDICATE)
+            characteristic.service_uuid == SERVICE_UUID
+                && characteristic
+                    .properties
+                    .intersects(CharPropFlags::NOTIFY | CharPropFlags::INDICATE)
         }) {
-            peripheral.subscribe(characteristic).await?;
+            timeout(REQUEST_TIMEOUT, peripheral.subscribe(characteristic))
+                .await
+                .context("notification subscription timed out")??;
         }
 
         Ok(Self {
@@ -268,20 +266,25 @@ impl WatchConnection {
             "Request {:02X}",
             bytes.first().copied().unwrap_or_default()
         ));
-        self.peripheral
-            .write(
-                &self.request_characteristic,
-                bytes,
-                WriteType::WithoutResponse,
-            )
-            .await?;
-        timeout(deadline, self.wait_for(expected))
-            .await
-            .with_context(|| format!("command {expected:02X} timed out"))?
+        timeout(deadline, async {
+            self.peripheral
+                .write(
+                    &self.request_characteristic,
+                    bytes,
+                    WriteType::WithoutResponse,
+                )
+                .await?;
+            self.wait_for(expected).await
+        })
+        .await
+        .with_context(|| format!("command {expected:02X} timed out"))?
     }
 
     async fn wait_for(&mut self, expected: u8) -> Result<Vec<u8>> {
         while let Some(notification) = self.notifications.next().await {
+            if notification.uuid != FEATURES_UUID && notification.uuid != REQUEST_UUID {
+                continue;
+            }
             let data = notification.value;
             if data.is_empty() {
                 continue;
@@ -336,7 +339,59 @@ async fn run_session(
     peripheral: Peripheral,
     bluetooth_name: String,
     shared: Arc<SharedState>,
+    commands: &mut mpsc::Receiver<BluetoothCommand>,
+) -> bool {
+    let mut shutdown = false;
+    let result = {
+        let session = timeout(
+            Duration::from_secs(300),
+            run_session_inner(peripheral.clone(), bluetooth_name, shared.clone()),
+        );
+        tokio::pin!(session);
+        loop {
+            tokio::select! {
+                result = &mut session => break result.context("the connection session timed out").and_then(|result| result),
+                command = commands.recv() => match command {
+                    Some(BluetoothCommand::ScanNow) => {},
+                    Some(BluetoothCommand::Disconnect) => break Err(anyhow!("Disconnected by the user; unconfirmed changes kept")),
+                    Some(BluetoothCommand::Shutdown) | None => {
+                        shutdown = true;
+                        break Err(anyhow!("Application stopped; unconfirmed changes kept"));
+                    }
+                }
+            }
+        }
+    };
+    let _ = timeout(Duration::from_secs(3), peripheral.disconnect()).await;
+    if let Err(error) = &result {
+        shared.trace(format!("Connection ended: {error}"));
+        let id = peripheral.id().to_string();
+        let mut data = shared.data.write();
+        if let Some(watch) = data.watches.iter().find(|watch| watch.id == id) {
+            let mut record = ConnectionRecord::new(
+                id,
+                watch.effective_model().to_owned(),
+                WatchButtonEvent::Unknown,
+            );
+            record.outcome = format!("Incomplete session: {error}");
+            data.history.insert(0, record);
+            data.history.truncate(300);
+        }
+        drop(data);
+        shared.save();
+    }
+    shared.runtime.write().connected_watch_id = None;
+    shutdown
+}
+
+async fn run_session_inner(
+    peripheral: Peripheral,
+    bluetooth_name: String,
+    shared: Arc<SharedState>,
 ) -> Result<()> {
+    if !shared.can_mutate() || !is_supported_bluetooth_name(&bluetooth_name) {
+        bail!("Unsupported watch or protected local state");
+    }
     let identifier = peripheral.id().to_string();
     {
         let mut runtime = shared.runtime.write();
@@ -347,19 +402,16 @@ async fn run_session(
         runtime.push_trace(format!("Compatible watch found: {bluetooth_name}"));
     }
 
-    let mut connection = match WatchConnection::open(peripheral.clone(), shared.clone()).await {
-        Ok(connection) => connection,
-        Err(error) => {
-            let _ = peripheral.disconnect().await;
-            return Err(error);
-        }
-    };
+    let mut connection = WatchConnection::open(peripheral, shared.clone()).await?;
 
     let features = connection
         .request(&[code::BLE_FEATURES], code::BLE_FEATURES, REQUEST_TIMEOUT)
         .await?;
     let event = protocol::decode_button(&features);
-    let watch_id = remember_watch(&shared, &identifier, &bluetooth_name);
+    if event == WatchButtonEvent::Unknown {
+        bail!("Unknown connection event; no action or settings sent");
+    }
+    let watch_id = remember_watch(&shared, &identifier, &bluetooth_name)?;
     let (watch_model, trusted, action, should_sync) = {
         let data = shared.data.read();
         let watch = data
@@ -388,17 +440,19 @@ async fn run_session(
         .request(&[code::APP_INFO], code::APP_INFO, Duration::from_secs(5))
         .await;
 
-    if trusted && action.kind != watchbridge_core::model::ActionKind::None {
+    if trusted && action.kind != watchbridge_core::model::ActionKind::None && shared.begin_action()
+    {
         let action_shared = shared.clone();
         tokio::spawn(async move {
             let outcome = actions::run(action).await;
-            action_shared.runtime.write().last_action_result = Some(outcome.summary);
+            action_shared.finish_action(outcome.summary);
         });
     } else if !trusted && action.kind != watchbridge_core::model::ActionKind::None {
         shared.trace("Computer action blocked until this physical watch is trusted");
     }
 
     let mut record = ConnectionRecord::new(watch_id.clone(), watch_model, event);
+    let mut incomplete = false;
     if let Ok(condition) = connection
         .request(&[code::CONDITION], code::CONDITION, REQUEST_TIMEOUT)
         .await
@@ -411,15 +465,25 @@ async fn run_session(
             snapshot.temperature_celsius = Some(temperature);
             snapshot.last_event = Some(event);
         });
+    } else {
+        incomplete = true;
+        shared.trace("The current watch condition could not be read; cached values retained");
     }
 
-    if event == WatchButtonEvent::Connect
-        && let Err(error) = refresh_all(&mut connection, &shared, &watch_id).await
-    {
-        shared.trace(format!("Full refresh was incomplete: {error}"));
+    if event == WatchButtonEvent::Connect {
+        refresh_all(&mut connection, &shared, &watch_id)
+            .await
+            .context("Full refresh incomplete; no queued changes sent")?;
     }
 
-    let pending = shared.data.read().pending_changes.clone();
+    if !shared.can_mutate() {
+        bail!("Local state cannot be saved; writes paused");
+    }
+    let pending = if event == WatchButtonEvent::Connect {
+        shared.data.read().pending_for(&watch_id)
+    } else {
+        Vec::new()
+    };
     for change in pending
         .iter()
         .filter(|change| !matches!(change, PendingChange::SyncTime))
@@ -427,14 +491,11 @@ async fn run_session(
         match apply_change(&mut connection, &shared, &watch_id, change).await {
             Ok(()) => {
                 record.applied_changes.push(change.summary());
-                shared
-                    .data
-                    .write()
-                    .pending_changes
-                    .retain(|pending| pending.id() != change.id());
+                shared.data.write().acknowledge_change(&watch_id, change);
                 shared.save();
             }
             Err(error) => {
+                incomplete = true;
                 shared.trace(format!("Pending {} was kept: {error}", change.id()));
                 break;
             }
@@ -451,18 +512,21 @@ async fn run_session(
                 shared
                     .data
                     .write()
-                    .pending_changes
-                    .retain(|change| !matches!(change, PendingChange::SyncTime));
+                    .acknowledge_change(&watch_id, &PendingChange::SyncTime);
             }
-            Err(error) if !connection.peripheral.is_connected().await.unwrap_or(false) => {
-                record.time_synced = true;
-                shared.trace(format!("Time packet sent before disconnect: {error}"));
+            Err(error) => {
+                incomplete = true;
+                shared.trace(format!("Time sync was not confirmed: {error}"));
             }
-            Err(error) => shared.trace(format!("Time sync failed: {error}")),
         }
     }
 
-    record.outcome = "Completed".to_owned();
+    record.outcome = if incomplete {
+        "Partial session; check pending changes"
+    } else {
+        "Completed"
+    }
+    .to_owned();
     {
         let mut data = shared.data.write();
         if let Some(watch) = data.watches.iter_mut().find(|watch| watch.id == watch_id) {
@@ -474,7 +538,6 @@ async fn run_session(
     }
     shared.save();
 
-    let _ = peripheral.disconnect().await;
     {
         let mut runtime = shared.runtime.write();
         runtime.connected_watch_id = None;
@@ -483,7 +546,7 @@ async fn run_session(
     Ok(())
 }
 
-fn remember_watch(shared: &SharedState, identifier: &str, bluetooth_name: &str) -> String {
+fn remember_watch(shared: &SharedState, identifier: &str, bluetooth_name: &str) -> Result<String> {
     let detected_model = model_from_bluetooth_name(bluetooth_name);
     let now = Utc::now();
     let mut data = shared.data.write();
@@ -491,42 +554,23 @@ fn remember_watch(shared: &SharedState, identifier: &str, bluetooth_name: &str) 
     let index = if let Some(index) = data.watches.iter().position(|watch| watch.id == identifier) {
         index
     } else {
-        let manual_matches: Vec<usize> = data
-            .watches
-            .iter()
-            .enumerate()
-            .filter(|(_, watch)| {
-                watch.manually_registered
-                    && !watch.is_linked()
-                    && same_watch_family(watch.effective_model(), &detected_model)
-            })
-            .map(|(index, _)| index)
-            .collect();
-        if manual_matches.len() == 1 {
-            let index = manual_matches[0];
-            let previous_id = data.watches[index].id.clone();
-            data.watches[index].id = identifier.to_owned();
-            if data.favorite_watch_id.as_deref() == Some(&previous_id) {
-                data.favorite_watch_id = Some(identifier.to_owned());
-            }
-            index
-        } else {
-            let configured_model = data.preferred_model.clone();
-            data.watches.push(SavedWatch {
-                id: identifier.to_owned(),
-                detected_model: detected_model.clone(),
-                configured_model: Some(configured_model),
-                nickname: String::new(),
-                manually_registered: false,
-                first_seen: now,
-                last_seen: Some(now),
-                connection_count: 0,
-                image_filename: None,
-                allows_computer_actions: false,
-                snapshot: WatchSnapshot::default(),
-            });
-            data.watches.len() - 1
+        if data.watches.len() >= 100 {
+            bail!("The watch collection is full; no device was replaced");
         }
+        data.watches.push(SavedWatch {
+            id: identifier.to_owned(),
+            detected_model: detected_model.clone(),
+            configured_model: Some(detected_model.clone()),
+            nickname: String::new(),
+            manually_registered: false,
+            first_seen: now,
+            last_seen: Some(now),
+            connection_count: 0,
+            image_filename: None,
+            allows_computer_actions: false,
+            snapshot: WatchSnapshot::default(),
+        });
+        data.watches.len() - 1
     };
 
     let watch_id = {
@@ -542,7 +586,7 @@ fn remember_watch(shared: &SharedState, identifier: &str, bluetooth_name: &str) 
     }
     drop(data);
     shared.save();
-    watch_id
+    Ok(watch_id)
 }
 
 fn update_snapshot(shared: &SharedState, watch_id: &str, update: impl FnOnce(&mut WatchSnapshot)) {
@@ -568,6 +612,9 @@ async fn refresh_all(
         let name = protocol::decode_name(&raw);
         if !name.is_empty() {
             let model = model_from_bluetooth_name(&name);
+            if !watchbridge_core::model::is_supported_model(&model) {
+                bail!("The watch reports an unsupported model; no settings sent");
+            }
             if let Some(watch) = shared
                 .data
                 .write()
@@ -590,9 +637,8 @@ async fn refresh_all(
         .map(|packet| protocol::decode_city(&packet))?;
     let timer = connection
         .request(&[code::TIMER], code::TIMER, REQUEST_TIMEOUT)
-        .await
-        .ok()
-        .and_then(|packet| protocol::decode_timer(&packet));
+        .await?;
+    let timer = protocol::decode_timer(&timer).context("invalid timer response")?;
     let alarms = read_alarms(connection).await?;
     let settings = connection
         .request(
@@ -600,18 +646,18 @@ async fn refresh_all(
             code::BASIC_SETTINGS,
             REQUEST_TIMEOUT,
         )
-        .await
-        .ok()
-        .and_then(|packet| protocol::decode_settings(&packet));
+        .await?;
+    let settings = protocol::decode_settings(&settings).context("invalid settings response")?;
     let automatic_time_adjustment = connection
         .request(
             &[code::TIME_ADJUSTMENT],
             code::TIME_ADJUSTMENT,
             REQUEST_TIMEOUT,
         )
-        .await
-        .ok()
-        .and_then(|packet| protocol::decode_automatic_time_adjustment(&packet));
+        .await?;
+    let automatic_time_adjustment =
+        protocol::decode_automatic_time_adjustment(&automatic_time_adjustment)
+            .context("invalid automatic adjustment response")?;
 
     let mut reminders = Vec::new();
     for slot in 1..=5 {
@@ -630,17 +676,20 @@ async fn refresh_all(
             )
             .await?;
         let mut reminder = watchbridge_core::model::Reminder::new(slot);
-        reminder.title = protocol::decode_reminder_title(&title).unwrap_or_default();
-        let _ = protocol::decode_reminder_time(&time, &mut reminder);
+        reminder.title =
+            protocol::decode_reminder_title(&title).context("invalid reminder title response")?;
+        if !protocol::decode_reminder_time(&time, &mut reminder) {
+            bail!("invalid reminder time response");
+        }
         reminders.push(reminder);
     }
 
     update_snapshot(shared, watch_id, |snapshot| {
         snapshot.home_city = (!city.is_empty()).then_some(city);
-        snapshot.timer_seconds = timer;
+        snapshot.timer_seconds = Some(timer);
         snapshot.alarms = alarms;
-        snapshot.settings = settings;
-        snapshot.automatic_time_adjustment = automatic_time_adjustment;
+        snapshot.settings = Some(settings);
+        snapshot.automatic_time_adjustment = Some(automatic_time_adjustment);
         snapshot.reminders = reminders;
     });
     shared.save();
@@ -665,6 +714,9 @@ async fn apply_change(
     watch_id: &str,
     change: &PendingChange,
 ) -> Result<()> {
+    if !shared.can_mutate() {
+        bail!("Local state cannot be saved; writes paused");
+    }
     match change {
         PendingChange::Reminder(reminder) => {
             connection
@@ -735,6 +787,9 @@ async fn write_time(
     shared: &SharedState,
     watch_id: &str,
 ) -> Result<()> {
+    if !shared.can_mutate() {
+        bail!("Local state cannot be saved; writes paused");
+    }
     for state in [0, 2, 4] {
         let _ = connection.echo(&[code::DST_WATCH_STATE, state]).await;
     }
@@ -775,7 +830,6 @@ async fn write_time(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use watchbridge_core::model::AppData;
 
     #[test]
     fn platform_neutral_uuids_match_the_documented_service() {
@@ -787,15 +841,20 @@ mod tests {
     }
 
     #[test]
-    fn manual_matching_only_claims_a_single_compatible_watch() {
-        let mut data = AppData::default();
-        data.watches
-            .push(SavedWatch::manual("GW-B5600BP-1", "Blue"));
-        let matches = data
+    fn discovery_never_claims_or_trusts_a_manual_registration() {
+        let shared = SharedState::demo();
+        shared.data.write().watches.clear();
+        shared
+            .data
+            .write()
             .watches
-            .iter()
-            .filter(|watch| same_watch_family(watch.effective_model(), "GW-B5600"))
-            .count();
-        assert_eq!(matches, 1);
+            .push(SavedWatch::manual("GW-B5600BP-1", "Blue"));
+        let id = remember_watch(&shared, "physical-device", "CASIO GW-B5600").unwrap();
+        let data = shared.data.read();
+        assert_eq!(id, "physical-device");
+        assert_eq!(data.watches.len(), 2);
+        assert!(data.watches[0].manually_registered);
+        assert!(!data.watches[1].allows_computer_actions);
+        assert_eq!(data.watches[1].nickname, "");
     }
 }

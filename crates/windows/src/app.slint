@@ -19,6 +19,7 @@ export struct WatchRow {
     favorite: bool,
     trusted: bool,
     can-trust: bool,
+    link-target-id: string,
 }
 
 export struct HistoryRow {
@@ -142,7 +143,7 @@ component ActionCard inherits Rectangle {
     callback change-action(string, int, string);
     callback change-value(string, string);
 
-    height: 326px;
+    height: 360px;
     background: #ffffff0b;
     border-color: #ffffff18;
     border-width: 1px;
@@ -153,7 +154,7 @@ component ActionCard inherits Rectangle {
         spacing: 12px;
 
         HorizontalBox {
-            height: 94px;
+            height: 116px;
             spacing: 12px;
             alignment: start;
             Rectangle {
@@ -174,6 +175,8 @@ component ActionCard inherits Rectangle {
                 spacing: 5px;
                 Text {
                     text: root.action-row.title;
+                    height: 44px;
+                    overflow: elide;
                     color: #f4f7fb;
                     font-size: 17px;
                     font-weight: 700;
@@ -181,6 +184,8 @@ component ActionCard inherits Rectangle {
                 }
                 Text {
                     text: root.action-row.detail;
+                    height: 64px;
+                    overflow: elide;
                     color: #aeb8c7;
                     font-size: 12px;
                     wrap: word-wrap;
@@ -231,6 +236,7 @@ component WatchListCard inherits Rectangle {
     in property <WatchRow> watch;
     callback make-favorite(string);
     callback toggle-trust(string);
+    callback link-registration(string, string);
 
     height: 122px;
     background: #ffffff0b;
@@ -260,9 +266,12 @@ component WatchListCard inherits Rectangle {
             clicked => { root.make-favorite(root.watch.id); }
         }
         Button {
-            text: root.watch.trusted ? "Actions allowed" : "Actions blocked";
-            enabled: root.watch.can-trust;
-            clicked => { root.toggle-trust(root.watch.id); }
+            text: root.watch.link-target-id != "" ? "Link to latest watch" : root.watch.trusted ? "Actions allowed" : "Actions blocked";
+            enabled: root.watch.can-trust || root.watch.link-target-id != "";
+            clicked => {
+                if root.watch.link-target-id != "" { root.link-registration(root.watch.id, root.watch.link-target-id); }
+                else { root.toggle-trust(root.watch.id); }
+            }
         }
     }
 }
@@ -300,8 +309,10 @@ component DataListCard inherits Rectangle {
 
 export component MainWindow inherits Window {
     title: "WatchBridge";
-    width: 1240px;
-    height: 780px;
+    preferred-width: 1240px;
+    preferred-height: 780px;
+    min-width: 1080px;
+    min-height: 700px;
     background: transparent;
 
     in-out property <int> selected-navigation: 0;
@@ -319,6 +330,8 @@ export component MainWindow inherits Window {
     in property <string> history-count-text: "0 saved sessions";
     in property <string> last-action-text: "No action has run in this session";
     in property <[ActionRow]> action-rows;
+    in property <[ActionRow]> first-action-rows;
+    in property <[ActionRow]> second-action-rows;
     in property <[WatchRow]> watch-rows;
     in property <[HistoryRow]> history-rows;
     in property <[ReminderRow]> reminder-rows;
@@ -339,6 +352,7 @@ export component MainWindow inherits Window {
     callback register-watch(string, string);
     callback make-favorite(string);
     callback toggle-trust(string);
+    callback link-registration(string, string);
     callback change-action(string, int, string);
     callback change-action-value(string, string);
     callback test-action(string);
@@ -520,6 +534,7 @@ export component MainWindow inherits Window {
                         watch: watch;
                         make-favorite(id) => { root.make-favorite(id); }
                         toggle-trust(id) => { root.toggle-trust(id); }
+                        link-registration(manual, physical) => { root.link-registration(manual, physical); }
                     }
                     Text { text: "Computer actions stay blocked until a physical watch has connected and you explicitly allow it."; color: #8792a3; font-size: 11px; }
                 }
@@ -576,15 +591,21 @@ export component MainWindow inherits Window {
                     spacing: 18px;
                     HorizontalBox {
                         PageHeading { eyebrow: "ACTIONS"; title: "What each watch gesture does"; detail: "Only trusted physical watches may run computer actions. Test is always manual."; }
-                        Image { width: 90px; height: 100px; source: @image-url("../watch-guide.png"); image-fit: contain; }
+                        Rectangle {
+                            width: 180px; height: 142px; background: transparent;
+                            Image { x: 50px; width: 80px; height: 140px; source: @image-url("../watch-guide.png"); image-fit: contain; }
+                            Text { x: 26px; y: 40px; text: "A"; color: #aeb8c7; }
+                            Text { x: 142px; y: 40px; text: "B"; color: #aeb8c7; }
+                            Text { x: 26px; y: 95px; text: "C"; color: #4b9dff; }
+                            Text { x: 142px; y: 95px; text: "D"; color: #4b9dff; }
+                        }
                     }
                     HorizontalBox {
                         spacing: 14px;
-                        for row[index] in root.action-rows : ActionCard {
+                        for row in root.first-action-rows : ActionCard {
                             action-row: row;
                             action-options: root.action-options;
-                            visible: index < 2;
-                            horizontal-stretch: index < 2 ? 1 : 0;
+                            horizontal-stretch: 1;
                             test-action(code) => { root.test-action(code); }
                             change-action(code, selected, value) => { root.change-action(code, selected, value); }
                             change-value(code, value) => { root.change-action-value(code, value); }
@@ -592,11 +613,10 @@ export component MainWindow inherits Window {
                     }
                     HorizontalBox {
                         spacing: 14px;
-                        for row[index] in root.action-rows : ActionCard {
+                        for row in root.second-action-rows : ActionCard {
                             action-row: row;
                             action-options: root.action-options;
-                            visible: index >= 2;
-                            horizontal-stretch: index >= 2 ? 1 : 0;
+                            horizontal-stretch: 1;
                             test-action(code) => { root.test-action(code); }
                             change-action(code, selected, value) => { root.change-action(code, selected, value); }
                             change-value(code, value) => { root.change-action-value(code, value); }
@@ -650,7 +670,7 @@ export component MainWindow inherits Window {
                         border-radius: 14px;
                         AboutSlint { }
                     }
-                    Text { text: "Source code: github.com/WerrySs/watchbridge · MIT License"; color: #8792a3; font-size: 11px; }
+                    Text { text: "Source: github.com/WerrySs/watch-actions-gshock-casio · MIT License"; color: #8792a3; font-size: 11px; }
                 }
             }
         }

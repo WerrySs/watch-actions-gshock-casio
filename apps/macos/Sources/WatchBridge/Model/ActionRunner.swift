@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import AVFoundation
 import Darwin
 import Foundation
@@ -32,8 +33,21 @@ enum ActionRunner {
             return "open link → \(ok ? "ok" : "failed")"
         case .lockScreen:
             let code = await process("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", ["-suspend"])
-            if code != 0 { await process("/usr/bin/pmset", ["displaysleepnow"]) }
-            return "lock screen → code \(code)"
+            if code == 0 { return "screen lock requested" }
+            // CGSession is absent on newer macOS. Never substitute display sleep for a lock
+            // or change system permissions: this optional shortcut needs user authorization.
+            guard AXIsProcessTrusted() else {
+                return "screen lock needs Accessibility permission for WatchBridge; use Control-Command-Q manually"
+            }
+            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0x0C, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: nil, virtualKey: 0x0C, keyDown: false) else {
+                return "could not create the screen-lock request"
+            }
+            down.flags = [.maskControl, .maskCommand]
+            up.flags = [.maskControl, .maskCommand]
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+            return "screen-lock shortcut requested; verify the screen is locked"
         case .sleepDisplay:
             let code = await process("/usr/bin/pmset", ["displaysleepnow"])
             return "turn off display → code \(code)"

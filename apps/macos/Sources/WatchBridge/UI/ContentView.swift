@@ -64,11 +64,27 @@ struct ContentView: View {
                 } else {
                     VisualEffect().ignoresSafeArea()
                 }
-                content
+                content.id(store.currentWatchID)
+                    .disabled(store.storageWarning != nil)
             }
         }
         .navigationTitle(selection?.title ?? "WatchBridge")
         .navigationSubtitle(store.navigationStatus)
+        .safeAreaInset(edge: .top) {
+            if let warning = store.storageWarning {
+                Label(warning, systemImage: "exclamationmark.shield")
+                    .font(.callout).padding().frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.regularMaterial)
+            } else if store.legacyPendingCount > 0 {
+                Text("Old unassigned changes were preserved but will not be sent. Recreate them for the intended physical watch.")
+                    .font(.callout).padding().frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.regularMaterial)
+            } else if [.reminders, .alarms, .settings].contains(selection ?? .watch), let watch = store.currentWatch {
+                Label("Changes target: \(watch.title)", systemImage: "applewatch")
+                    .font(.callout).padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.regularMaterial)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

@@ -13,6 +13,24 @@ use crate::protocol;
 const CORE_VERSION: &CStr = c"0.1.0";
 const MAXIMUM_FFI_STRING_BYTES: usize = 10_000_000;
 
+#[unsafe(no_mangle)]
+/// Checks the supported model allowlist.
+///
+/// # Safety
+/// `value` must be null or a readable NUL-terminated string for this call.
+pub unsafe extern "C" fn wb_is_supported_model(value: *const c_char) -> bool {
+    (unsafe { read_c_string(value) }).is_some_and(|v| crate::model::is_supported_model(&v))
+}
+
+#[unsafe(no_mangle)]
+/// Checks an advertised name before a Bluetooth session is started.
+///
+/// # Safety
+/// `value` must be null or a readable NUL-terminated string for this call.
+pub unsafe extern "C" fn wb_is_supported_bluetooth_name(value: *const c_char) -> bool {
+    (unsafe { read_c_string(value) }).is_some_and(|v| crate::model::is_supported_bluetooth_name(&v))
+}
+
 #[repr(C)]
 pub struct WbBytes {
     pub data: *mut u8,
@@ -134,6 +152,9 @@ pub unsafe extern "C" fn wb_validate_app_data_json(value: *const c_char) -> *mut
 
     match serde_json::from_str::<AppData>(&input) {
         Ok(mut data) => {
+            if data.schema_version > crate::model::SCHEMA_VERSION {
+                return json_error("The state was created by a newer version.");
+            }
             data.trim_for_storage();
             into_json(JsonResult {
                 ok: true,
