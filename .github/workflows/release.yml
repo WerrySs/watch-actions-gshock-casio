@@ -11,7 +11,11 @@ on:
         required: true
         default: "0.1.0"
       publish_preview:
-        description: Publish a private prerelease (may be unsigned; stable releases still require signing)
+        description: Publish an experimental prerelease (may be unsigned; stable releases require signing)
+        type: boolean
+        default: false
+      allow_public_preview:
+        description: Explicitly allow publishing the experimental prerelease if the repository is public
         type: boolean
         default: false
 
@@ -86,7 +90,7 @@ jobs:
           cargo clippy --locked --package watchbridge-core --package xtask --all-targets -- -D warnings
 
   security:
-    name: Release dependency gate
+    name: Release security gate
     uses: ./.github/workflows/security.yml
 
   macos:
@@ -345,6 +349,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.metadata.outputs.version }}
           IS_TAG: ${{ needs.metadata.outputs.is_tag }}
+          ALLOW_PUBLIC_PREVIEW: ${{ inputs.allow_public_preview }}
         run: |
           set -euo pipefail
           if [[ "$IS_TAG" == "true" ]]; then
@@ -352,15 +357,23 @@ jobs:
             gh release create "$tag" dist/*.dmg dist/*.zip dist/*.sha256 \
               --draft --verify-tag --generate-notes --title "WatchBridge $VERSION"
           else
-            [[ "$(gh api "repos/$GH_REPO" --jq .private)" == "true" ]] || { echo "Preview publishing currently requires a private repository." >&2; exit 1; }
+            visibility="$(gh api "repos/$GH_REPO" --jq .visibility)"
+            if [[ "$visibility" != "private" && "$visibility" != "public" ]]; then
+              echo "Unexpected repository visibility; refusing publication." >&2
+              exit 1
+            fi
+            if [[ "$visibility" == "public" && "$ALLOW_PUBLIC_PREVIEW" != "true" ]]; then
+              echo "Public experimental downloads require explicit allow_public_preview approval." >&2
+              exit 1
+            fi
             main_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)"
             if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
               echo "main advanced during the build. Start a fresh preview from main; artifacts must match their source and the token cannot publish changed historical workflows." >&2
               exit 1
             fi
-            tag="preview-v${VERSION}-${GITHUB_RUN_NUMBER}"
+            tag="beta-v${VERSION}-${GITHUB_RUN_NUMBER}"
             gh release create "$tag" dist/*.dmg dist/*.zip dist/*.sha256 \
               --draft --prerelease --target "$GITHUB_SHA" \
-              --notes-file docs/PREVIEW_RELEASE.md --title "WatchBridge $VERSION · private preview $GITHUB_RUN_NUMBER"
+              --notes-file docs/PREVIEW_RELEASE.md --title "WatchBridge $VERSION · experimental beta $GITHUB_RUN_NUMBER"
           fi
           gh release edit "$tag" --draft=false

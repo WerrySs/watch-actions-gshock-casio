@@ -1,6 +1,6 @@
 # Releasing WatchBridge
 
-Repository: `WerrySs/watch-actions-gshock-casio`. Keep it **private** until the owner explicitly approves publication.
+Repository: `WerrySs/watch-actions-gshock-casio`. Repository visibility and release publication are separate decisions. The owner must explicitly authorize opening the source after the [public-beta checklist](PUBLIC_BETA_CHECKLIST.md); no workflow changes visibility automatically.
 
 ## CI downloads
 
@@ -11,20 +11,26 @@ Successful CI runs attach two review artifacts for 14 days:
 
 Native runners execute tests, build and run a startup smoke check without Bluetooth or saved user data. macOS verifies arm64 and x86_64 slices; Windows links the MSVC runtime statically. Startup checks do not validate interactive UI or physical Bluetooth hardware.
 
-## Private prerelease
+## Experimental beta
 
-After green CI, from main:
+After green CI, from main, use the default for a private repository:
 
 ```console
 gh workflow run release.yml --repo WerrySs/watch-actions-gshock-casio --ref main -f version=0.1.0 -F publish_preview=true
 gh run list --repo WerrySs/watch-actions-gshock-casio --workflow release.yml
 ```
 
-Release reruns tests and dependency policy, packages both clients, verifies checksums and creates `preview-vVERSION-RUN_NUMBER`. Assets are attached to a draft before it becomes downloadable. Preview publishing explicitly refuses a non-private repository. With the default `publish_preview=false`, it produces artifacts only.
+For a repository that the owner has already made public, explicitly opt in to public beta downloads:
+
+```console
+gh workflow run release.yml --repo WerrySs/watch-actions-gshock-casio --ref main -f version=0.1.0 -F publish_preview=true -F allow_public_preview=true
+```
+
+Release reruns tests and dependency policy, packages both clients, verifies checksums and creates `beta-vVERSION-RUN_NUMBER`. Assets are attached to a draft before it becomes downloadable. A public repository requires `allow_public_preview=true`; its default is false. With `publish_preview=false`, manual runs produce artifacts only. Neither option bypasses stable-release signing or certifies physical hardware.
 
 Keep `main` unchanged until a publishing run finishes. The preview guard refuses to retarget already-built artifacts if `main` advances: start a fresh run instead. GitHub's automatic token cannot publish a historical target whose workflow files differ from the default branch; do not add a broad personal token to work around that restriction. See [GitHub's release permission requirements](https://docs.github.com/en/rest/releases/releases#create-a-release).
 
-Previews may be **ad-hoc signed on macOS and unsigned on Windows**. Do not remove these warnings or instruct users to disable Gatekeeper, SmartScreen or antivirus. See [Installation](INSTALLATION.md).
+Betas may be **ad-hoc signed on macOS and unsigned on Windows**. Do not remove these warnings or instruct users to disable Gatekeeper, SmartScreen or antivirus. Retain older internal-only previews as drafts when opening the repository. See [Installation](INSTALLATION.md).
 
 ## Signed distribution
 
@@ -64,4 +70,8 @@ Archives include licensing notices. Checksums detect corruption; they do not rep
 
 ## Repository safeguards
 
-Use read-only default tokens, full-SHA pins, no workflow bot approval of PRs, and dependency alerts. Private-repository branch protection and some secret-scanning/reporting features depend on the GitHub plan. If GitHub rejects those settings, document the limitation and preserve privacy; do not change visibility to enable them.
+Use read-only default tokens, full-SHA pins, no workflow bot approval of PRs, and approval for external contributors' workflows. Protect main with pull requests, strict **Required checks**, resolved conversations, no force pushes or deletions, and administrator enforcement. A sole maintainer cannot independently approve their own PR; do not claim a second-person review until another maintainer is available.
+
+CI invokes dependency/license checks for every PR and exposes one aggregate result, so path filters cannot leave the required status indefinitely pending. Gitleaks scans full Git history using a checksum-pinned binary and redacted output. Raw scanner findings and private audit backups must not be uploaded.
+
+Private-repository branch protection and some secret-scanning/reporting features depend on the GitHub plan. If GitHub rejects those settings, document the limitation; changing visibility still requires the owner's separate approval. Verify all protections, secret scanning/push protection, dependency alerts and private vulnerability reporting immediately after an authorized switch. See the [public-beta checklist](PUBLIC_BETA_CHECKLIST.md).

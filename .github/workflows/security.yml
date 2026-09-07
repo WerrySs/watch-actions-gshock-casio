@@ -1,12 +1,8 @@
 name: Security
 
 on:
-  push:
-    branches: [main]
-    paths: [Cargo.lock, '**/Cargo.toml', deny.toml, about.toml, THIRD_PARTY_LICENSES.txt, .github/licenses.hbs, .github/workflows/security.yml]
-  pull_request:
-    branches: [main]
-    paths: [Cargo.lock, '**/Cargo.toml', deny.toml, about.toml, THIRD_PARTY_LICENSES.txt, .github/licenses.hbs, .github/workflows/security.yml]
+  # CI invokes this for every PR, including documentation-only changes, so the
+  # required check cannot stay pending because of a workflow-level path filter.
   workflow_call:
   schedule:
     - cron: "23 5 * * 1"
@@ -23,6 +19,50 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  repository-safety:
+    name: Repository safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Reject private workspace data and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.ai|\.workos)(/|$)'; then
+            echo "Private WorkOS data must never be tracked." >&2
+            exit 1
+          fi
+          if git ls-files | grep -E '\.(p12|pfx|pem|key|mobileprovision)$'; then
+            echo "Signing material or private keys must never be tracked." >&2
+            exit 1
+          fi
+          if git grep -IEl '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})' -- . ':!Cargo.lock'; then
+            echo "A credential-like value is present in tracked source." >&2
+            exit 1
+          fi
+      - name: Scan complete Git history with pinned Gitleaks
+        shell: bash
+        env:
+          GITLEAKS_CONFIG_TOML: |
+            [extend]
+            useDefault = true
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gitleaks_8.30.1_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$archive"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git . --redact=100 --no-banner \
+            --ignore-gitleaks-allow --gitleaks-ignore-path "$RUNNER_TEMP/no-gitleaks-ignore" \
+            --log-opts="--all --full-history" --timeout 120
+
   dependencies:
     name: Dependency policy
     runs-on: ubuntu-24.04

@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve WatchBridge. The repository is private during early hardware validation, but the same review rules apply before it is opened more broadly.
+Thank you for helping improve WatchBridge. This is an experimental community project: hardware validation, reproducible bug reports, documentation, and focused code changes are welcome. Opening the source does not certify the apps or any watch/OS combination.
 
 ## Ground rules
 
@@ -54,7 +54,7 @@ Review generated license changes. Slint's custom text is hash-checked in `about.
 
 Keep changes focused and explain the user-visible outcome, tests, privacy implications, and hardware validation performed. Add or update tests for parser, persistence, trust, and protocol changes. Include screenshots for interface changes at the default size and at the minimum usable size.
 
-Use a feature branch and open a pull request against `main`. Do not paste raw Bluetooth logs: they can contain personal reminders and device identifiers. CI artifacts expire after 14 days; link the run as build evidence. Use the hardware validation issue template for real-device results, including the exact model/module, OS/build version, tested gestures and failed cases. A successful compiler run does not qualify a watch as hardware verified.
+Use a feature branch or fork and open a pull request against `main`. The **Required checks** CI job must pass: it includes repository/history scanning, shared tests, dependency policy, and native macOS/Windows tests and packaging. Dependency checks run for documentation-only PRs too. External contributors' workflows may need maintainer approval before running. Do not paste raw Bluetooth logs: they can contain personal reminders and device identifiers. CI artifacts expire after 14 days; link the run as build evidence. Use the hardware validation issue template for real-device results, including the exact model/module, OS/build version, tested gestures and failed cases. A successful compiler run does not qualify a watch as hardware verified.
 
 Before adding a device to [Compatibility](docs/COMPATIBILITY.md), establish that its buttons initiate computer-observable Bluetooth events. Sharing a brand, case design or service UUID is not sufficient. Add primary [references](docs/REFERENCES.md), sanitized regression fixtures and separate macOS/Windows evidence. See the [roadmap](docs/ROADMAP.md) for bounded feature ideas.
 
