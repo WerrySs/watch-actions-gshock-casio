@@ -10,4 +10,4 @@ This preview adds per-device queues, fail-closed event decoding, protected-state
 
 Read [Installation](https://github.com/WerrySs/watch-actions-gshock-casio/blob/main/docs/INSTALLATION.md), [Compatibility](https://github.com/WerrySs/watch-actions-gshock-casio/blob/main/docs/COMPATIBILITY.md), [Contributing](https://github.com/WerrySs/watch-actions-gshock-casio/blob/main/CONTRIBUTING.md) and [Security](https://github.com/WerrySs/watch-actions-gshock-casio/blob/main/SECURITY.md). Packages include third-party license texts. WatchBridge is independent of Casio; CASIO and G-SHOCK identify hardware, not endorsement.
 
-Windows reminders, alarms and settings are cached read-only views; photo import and editor parity are not implemented. Only the GW-B5600/module 3461 protocol target is admitted. No exact watch/OS combination is hardware-certified yet. Please report reproducible results using the hardware-validation issue template, without identifiers or personal watch content.
+Please report reproducible results using the hardware-validation issue template, without identifiers or personal watch content.
