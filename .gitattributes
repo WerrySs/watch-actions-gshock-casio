@@ -7,3 +7,5 @@ apps/macos/Sources/CWatchBridge/** linguist-generated=true
 *.ico binary
 *.h linguist-detectable=false
 Cargo.lock text
+.github/licenses.hbs linguist-detectable=false
+THIRD_PARTY_LICENSES.txt linguist-generated=true -whitespace

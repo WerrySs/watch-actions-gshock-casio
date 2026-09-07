@@ -173,6 +173,10 @@ fn package_macos(requested_version: Option<&str>) -> anyhow::Result<()> {
         root.join("THIRD_PARTY_NOTICES.md"),
         resources.join("THIRD_PARTY_NOTICES.md"),
     )?;
+    fs::copy(
+        root.join("THIRD_PARTY_LICENSES.txt"),
+        resources.join("THIRD_PARTY_LICENSES.txt"),
+    )?;
     copy_directory(&package.join("Resources/Assets"), &resources.join("Assets"))?;
 
     let plist = contents.join("Info.plist");

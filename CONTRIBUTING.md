@@ -43,6 +43,15 @@ target/release/watchbridge-windows.exe --smoke-test
 
 ## Pull requests
 
+When changing dependencies, regenerate the bundled notices before committing:
+
+```console
+cargo install cargo-about --version 0.9.2 --locked
+cargo about generate --workspace --locked --fail .github/licenses.hbs --output-file THIRD_PARTY_LICENSES.txt
+```
+
+Review generated license changes. Slint's custom text is hash-checked in `about.toml` and explicitly included by the template to cover cargo-about 0.9.2's LicenseRef output omission. Investigate upstream changes before updating those hashes/text. Never commit raw cargo-about JSON: it contains local paths.
+
 Keep changes focused and explain the user-visible outcome, tests, privacy implications, and hardware validation performed. Add or update tests for parser, persistence, trust, and protocol changes. Include screenshots for interface changes at the default size and at the minimum usable size.
 
 Use a feature branch and open a pull request against `main`. Do not paste raw Bluetooth logs: they can contain personal reminders and device identifiers. CI artifacts expire after 14 days; link the run as build evidence. Use the hardware validation issue template for real-device results, including the exact model/module, OS/build version, tested gestures and failed cases. A successful compiler run does not qualify a watch as hardware verified.
