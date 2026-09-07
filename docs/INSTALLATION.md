@@ -2,7 +2,7 @@
 
 ## Download
 
-Choose a version under [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases). Only invited collaborators can access this private repository. CI artifacts are available for 14 days; release assets remain attached to their version.
+Choose the newest experimental beta under [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases). Public release assets can be downloaded without signing in; CI artifact downloads require a GitHub account. Access is limited to collaborators for any version retained as a draft or while the repository is private. CI artifacts are available for 14 days; release assets remain attached to their version.
 
 - macOS 14+: universal DMG/ZIP contains an app with Apple silicon and Intel slices. Copy the app to Applications.
 - Windows x64: extract the ZIP before starting WatchBridge.exe. Keep the included license and notices. The MSVC runtime is statically linked; normal Windows system components and graphics/Bluetooth drivers are still required.

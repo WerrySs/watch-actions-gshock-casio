@@ -29,7 +29,9 @@ All notable changes are documented here. This project follows Semantic Versionin
 ### Distribution
 
 - Rename the private repository to `WerrySs/watch-actions-gshock-casio`; retain the independent WatchBridge app name.
-- Attach universal macOS and Windows x64 downloads to CI; support labeled private preview releases.
+- Attach universal macOS and Windows x64 downloads to CI; support labeled experimental beta releases with an explicit opt-in for public preview publishing.
+- Scan complete Git history with a checksum-pinned Gitleaks binary and redact scanner output; aggregate native and dependency jobs in one required CI check for every PR.
+- Separate public-beta preparation from stable-release requirements and document physical-test limitations.
 - Add installation, compatibility evidence, primary references and contribution guidance.
 - Stable distribution still requires publisher certificates and real-device validation; previews are not hardware certification.
 

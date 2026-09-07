@@ -10,7 +10,7 @@ WatchBridge connects supported Bluetooth watch gestures to actions on macOS and 
 > Independent, unofficial project. Not affiliated with, authorized by, sponsored by, endorsed by, or supported by Casio Computer Co., Ltd. CASIO and G-SHOCK are trademarks of their respective owner and are used only to identify compatible hardware. This is not an official Casio application.
 
 > [!WARNING]
-> **Private development preview, not a stable release.** Builds and automated tests are not a substitute for physical-watch acceptance tests. Preview packages are not Developer ID/notarized or Authenticode-signed unless their release explicitly states otherwise. Do not disable operating-system security protections to install them.
+> **Experimental beta, not a stable release.** Physical-watch acceptance tests are still incomplete on both platforms. Builds and automated tests do not establish hardware compatibility. Beta packages are not Developer ID/notarized or Authenticode-signed unless their release explicitly states otherwise. Do not disable operating-system security protections to install them.
 
 ![WatchBridge macOS dashboard preview](docs/screenshots/dashboard.png)
 
@@ -18,7 +18,7 @@ WatchBridge connects supported Bluetooth watch gestures to actions on macOS and 
 
 ## Download the app
 
-Open [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) and select a **private preview**:
+Open [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) and select the newest **experimental beta**:
 
 | Computer | Package | Installation |
 | --- | --- | --- |
@@ -27,7 +27,7 @@ Open [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) 
 
 Every package has a SHA-256 checksum. Review the release notes and [installation guidance](docs/INSTALLATION.md) first. If there is no release for a commit yet, each successful [CI run](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) provides macOS and Windows review archives under **Artifacts**, retained for 14 days.
 
-Windows 11 is the intended Mica experience. Windows 10 has a fallback appearance and needs separate acceptance testing. ARM64 Windows binaries and Linux are not distributed. You must be signed in with access to this private repository to download either platform.
+Windows 11 is the intended Mica experience. Windows 10 has a fallback appearance and needs separate acceptance testing. ARM64 Windows binaries and Linux are not distributed. Public release downloads do not require a GitHub account; CI artifact downloads require signing in. If the repository is still private, access is limited to invited collaborators.
 
 ## Supported device scope
 
