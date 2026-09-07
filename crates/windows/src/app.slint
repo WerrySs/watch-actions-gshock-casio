@@ -508,7 +508,7 @@ export component MainWindow inherits Window {
                             padding: 18px;
                             spacing: 10px;
                             Text { text: "Register a watch before pairing"; color: #f4f7fb; font-size: 17px; font-weight: 700; }
-                            Text { text: "Enter any exact model reference. The physical watch will be matched on its first compatible connection."; color: #9ca7b7; font-size: 12px; }
+                            Text { text: "Register a supported GW-B5600 variant. After connecting, explicitly link the chosen physical watch here."; color: #9ca7b7; font-size: 12px; wrap: word-wrap; }
                             HorizontalBox {
                                 spacing: 10px;
                                 LineEdit { text <=> root.new-watch-model; placeholder-text: "Exact model, for example GW-B5600BP-1"; }

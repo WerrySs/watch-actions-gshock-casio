@@ -53,6 +53,12 @@ These are short connection sessions, not continuous keyboard-like button events.
 
 Slint is not WinUI: both clients are compiled desktop apps, but their controls and feature sets are not identical. Their local JSON formats are also different; copying state files between platforms is not supported. See [Architecture](docs/ARCHITECTURE.md).
 
+### Language and Dashboard controls
+
+WatchBridge's interface and documentation are currently **English-only**, regardless of the system language. Dates and operating-system dialogs may use the system's regional settings. The older Spanish Swift prototype is a separate backup application, not a localized version of WatchBridge.
+
+On macOS, click the watch name to choose the Dashboard watch or follow the most recently connected unit. The **…** menu groups the exact model, local photo and favorite setting. A saved reading is shown quietly: being offline between short sessions is normal. Choosing a Dashboard favorite does not change the physical target of queued watch settings.
+
 ![Aligned macOS action cards and button guide](docs/screenshots/actions.png)
 
 Screenshots are macOS design previews, not evidence of Windows visual or physical-device testing.

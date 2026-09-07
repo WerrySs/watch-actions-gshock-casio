@@ -6,6 +6,7 @@ struct DashboardView: View {
     @Environment(WatchStore.self) private var store
     @State private var editingEvent: WatchButtonEvent?
     @State private var choosingPhoto = false
+    @State private var photoWatchID: String?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -28,9 +29,10 @@ struct DashboardView: View {
         ) { result in
             if case .success(let urls) = result,
                let url = urls.first,
-               let watchID = store.panelWatch?.id {
+               let watchID = photoWatchID {
                 store.importWatchImage(from: url, for: watchID)
             }
+            photoWatchID = nil
         }
     }
 
@@ -56,43 +58,24 @@ struct DashboardView: View {
                         .blur(radius: 32)
                         .offset(y: 10)
                 }
-            VStack(spacing: 8) {
-                Text(store.displayedWatchName)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.primary)
-                StatusChip(
-                    color: store.isConnected && store.currentWatchID == store.panelWatch?.id ? Theme.good : Theme.warn,
-                    text: store.panelStatusTitle
-                )
-                if WatchModelVariant.matching(store.displayedWatchModel) != nil {
-                    HStack(spacing: 8) {
-                        Text("Exact model")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Theme.text2)
-                        ModelPicker(selection: Binding(
-                            get: {
-                                WatchModelVariant(rawValue: store.displayedWatchModel)?.rawValue
-                                    ?? WatchModelVariant.matching(store.displayedWatchModel)?.rawValue
-                                    ?? WatchModelVariant.generic.rawValue
-                            },
-                            set: { store.setPanelModel($0) }
-                        ))
+            VStack(spacing: 9) {
+                HStack(spacing: 10) {
+                    if store.watches.isEmpty {
+                        Text(store.displayedWatchName)
+                            .font(.system(size: 18, weight: .semibold))
+                    } else {
+                        PanelWatchPicker()
                     }
-                    .controlSize(.small)
-                    .frame(maxWidth: 305)
+                    watchOptions
                 }
-                if !store.watches.isEmpty { PanelWatchPicker() }
-                if store.panelWatch != nil {
-                    Button { choosingPhoto = true } label: {
-                        Label(
-                            store.displayedWatchImageFilename == nil ? "Choose your photo…" : "Change photo…",
-                            systemImage: "photo"
-                        )
-                    }
-                    .buttonStyle(.ghost)
-                    .controlSize(.regular)
-                    .help("The sanitized copy stays on this Mac and contains no metadata")
+                if let nickname = store.panelWatch?.nickname, !nickname.isEmpty {
+                    Text(SavedWatch.displayName(for: store.displayedWatchModel))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
+                // Offline is normal for these watches, not a persistent warning.
+                Text(store.panelStatusTitle)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             Spacer(minLength: 0)
         }
@@ -101,6 +84,51 @@ struct DashboardView: View {
         .background(
             RadialGradient(colors: [Color.primary.opacity(0.05), .clear], center: .center, startRadius: 40, endRadius: 320)
         )
+    }
+
+    private var watchOptions: some View {
+        Menu {
+            Picker("Exact model", selection: Binding(
+                get: {
+                    WatchModelVariant(rawValue: store.displayedWatchModel)?.rawValue
+                        ?? WatchModelVariant.matching(store.displayedWatchModel)?.rawValue
+                        ?? WatchModelVariant.generic.rawValue
+                },
+                set: { store.setPanelModel($0) }
+            )) {
+                ForEach(WatchModelVariant.allCases) { variant in
+                    Text(variant.pickerTitle).tag(variant.rawValue)
+                }
+            }
+            if let watch = store.panelWatch {
+                Divider()
+                Button {
+                    photoWatchID = watch.id
+                    choosingPhoto = true
+                } label: {
+                    Label(store.displayedWatchImageFilename == nil ? "Choose your photo…" : "Change photo…", systemImage: "photo")
+                }
+                if store.displayedWatchImageFilename != nil {
+                    Button("Use default illustration", systemImage: "arrow.counterclockwise") {
+                        store.removeWatchImage(for: watch.id)
+                    }
+                }
+                Divider()
+                Toggle("Keep this watch on Dashboard", isOn: Binding(
+                    get: { store.favoriteWatchID == watch.id },
+                    set: { store.setFavoriteWatch($0 ? watch.id : nil) }
+                ))
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 18))
+                .frame(width: 28, height: 28)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Watch options")
+        .help("Choose an exact model, a local photo, or a Dashboard favorite")
     }
 
     // MARK: Metrics
@@ -174,10 +202,7 @@ private struct PanelWatchPicker: View {
     @Environment(WatchStore.self) private var store
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: store.favoriteWatchID == nil ? "clock.arrow.circlepath" : "star.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(store.favoriteWatchID == nil ? Theme.text3 : Theme.warn)
+        Menu {
             Picker("Dashboard watch", selection: Binding<String?>(
                 get: { store.favoriteWatchID },
                 set: { store.setFavoriteWatch($0) }
@@ -188,14 +213,21 @@ private struct PanelWatchPicker: View {
                     Text(watch.title).tag(Optional(watch.id))
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .controlSize(.small)
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 7) {
+                Text(store.displayedWatchName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .lineLimit(2)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Theme.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel("Dashboard watch: \(store.displayedWatchName)")
         .help("Keep a favorite on the Dashboard or follow the most recently connected watch")
     }
 }

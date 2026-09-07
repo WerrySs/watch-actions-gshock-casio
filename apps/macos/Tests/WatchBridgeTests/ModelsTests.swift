@@ -111,6 +111,28 @@ final class ModelsTests: XCTestCase {
     }
 
     @MainActor
+    func testDashboardSelectionAndModelEditsDoNotRetargetThePhysicalWatch() throws {
+        let store = WatchStore.preview(connected: false)
+        let physicalID = try XCTUnwrap(store.currentWatchID)
+        let physicalModel = store.currentWatch?.effectiveModel
+        let pending = store.pending
+        let registration = try XCTUnwrap(store.watches.first(where: { $0.manuallyRegistered == true }))
+
+        store.setFavoriteWatch(registration.id)
+        store.setPanelModel(WatchModelVariant.paisley.rawValue)
+        XCTAssertEqual(store.panelWatch?.id, registration.id)
+        XCTAssertEqual(store.displayedWatchModel, WatchModelVariant.paisley.rawValue)
+        XCTAssertEqual(store.currentWatchID, physicalID)
+        XCTAssertEqual(store.currentWatch?.effectiveModel, physicalModel)
+        XCTAssertEqual(store.pending, pending)
+
+        store.setFavoriteWatch(nil)
+        XCTAssertEqual(store.panelWatch?.id, physicalID)
+        store.setFavoriteWatch("missing-watch")
+        XCTAssertEqual(store.panelWatch?.id, physicalID)
+    }
+
+    @MainActor
     func testExplicitLinkPreservesReadingsButResetsTrust() throws {
         let store = WatchStore.preview()
         let physical = try XCTUnwrap(store.watches.first(where: { $0.connectionCount > 0 }))

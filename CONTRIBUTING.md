@@ -46,7 +46,7 @@ target/release/watchbridge-windows.exe --smoke-test
 When changing dependencies, regenerate the bundled notices before committing:
 
 ```console
-cargo install cargo-about --version 0.9.2 --locked
+cargo install cargo-about --version 0.9.2 --features cli --locked
 cargo about generate --workspace --locked --fail .github/licenses.hbs --output-file THIRD_PARTY_LICENSES.txt
 ```
 

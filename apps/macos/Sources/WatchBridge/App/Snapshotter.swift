@@ -75,6 +75,8 @@ enum Snapshotter {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        let fullWindow = CommandLine.arguments.contains("--full-window")
+        let minimumSize = CommandLine.arguments.contains("--minimum-size")
         // Dashboard contains the largest image, so it is captured last to reduce interference.
         let order: [SidebarItem] = [.watches, .reminders, .alarms, .settings, .actions, .log, .watch]
         let connectedStore = WatchStore.preview(connected: true)
@@ -86,21 +88,19 @@ enum Snapshotter {
             jobs = jobs.filter { $0.0 == "\(wanted).png" }
         }
         for (name, item, store) in jobs {
-            // Capture section content only; the sidebar and toolbar are system-rendered.
             let content: AnyView
-            switch item {
-            case .watch: content = AnyView(DashboardView().environment(store))
-            case .watches: content = AnyView(WatchesView().environment(store))
-            case .reminders: content = AnyView(RemindersView().environment(store))
-            case .alarms: content = AnyView(AlarmsView().environment(store))
-            case .settings: content = AnyView(TimerSettingsView().environment(store))
-            case .actions: content = AnyView(ActionsView().environment(store))
-            case .log: content = AnyView(LogView().environment(store))
+            if fullWindow {
+                content = AnyView(ContentView(initialSelection: item).environment(store))
+            } else {
+                content = AnyView(SectionContent(item: item).environment(store))
             }
             let url = directory.appendingPathComponent(name)
             // A full-host ScrollView can snapshot transparently, so add a two-point opaque column.
             let wrapped = HStack(spacing: 0) { content; Color.clear.frame(width: 2) }
-            capture(ZStack { Color(nsColor: .windowBackgroundColor); wrapped }, size: CGSize(width: 960, height: 760), to: url)
+            let size = fullWindow
+                ? CGSize(width: minimumSize ? 1_080 : 1_240, height: minimumSize ? 700 : 800)
+                : CGSize(width: 960, height: 760)
+            capture(ZStack { Color(nsColor: .windowBackgroundColor); wrapped }, size: size, to: url)
             print("\(isBlank(url) ? "BLANK   " : "ok      ") \(name)")
         }
         print("Snapshots written to \(directory.path)")
