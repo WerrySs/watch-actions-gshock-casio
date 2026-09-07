@@ -22,6 +22,8 @@ gh run list --repo WerrySs/watch-actions-gshock-casio --workflow release.yml
 
 Release reruns tests and dependency policy, packages both clients, verifies checksums and creates `preview-vVERSION-RUN_NUMBER`. Assets are attached to a draft before it becomes downloadable. Preview publishing explicitly refuses a non-private repository. With the default `publish_preview=false`, it produces artifacts only.
 
+Keep `main` unchanged until a publishing run finishes. The preview guard refuses to retarget already-built artifacts if `main` advances: start a fresh run instead. GitHub's automatic token cannot publish a historical target whose workflow files differ from the default branch; do not add a broad personal token to work around that restriction. See [GitHub's release permission requirements](https://docs.github.com/en/rest/releases/releases#create-a-release).
+
 Previews may be **ad-hoc signed on macOS and unsigned on Windows**. Do not remove these warnings or instruct users to disable Gatekeeper, SmartScreen or antivirus. See [Installation](INSTALLATION.md).
 
 ## Signed distribution

@@ -14,6 +14,8 @@ WatchBridge connects supported Bluetooth watch gestures to actions on macOS and 
 
 ![WatchBridge macOS dashboard preview](docs/screenshots/dashboard.png)
 
+*macOS preview with sample data and the project's neutral watch illustration. Add your own local watch photo; WatchBridge does not download manufacturer photography.*
+
 ## Download the app
 
 Open [Releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) and select a **private preview**:
@@ -59,9 +61,27 @@ WatchBridge's interface and documentation are currently **English-only**, regard
 
 On macOS, click the watch name to choose the Dashboard watch or follow the most recently connected unit. The **…** menu groups the exact model, local photo and favorite setting. A saved reading is shown quietly: being offline between short sessions is normal. Choosing a Dashboard favorite does not change the physical target of queued watch settings.
 
-![Aligned macOS action cards and button guide](docs/screenshots/actions.png)
+## Explore the interface
 
-Screenshots are macOS design previews, not evidence of Windows visual or physical-device testing.
+<details>
+<summary>Actions — physical button guide and aligned gesture cards</summary>
+
+See where A, B, C and D are, configure each supported gesture, and choose when to send the time. Test buttons are manual actions; physical watches require explicit trust.
+
+![Full-page macOS Actions preview with sidebar, four aligned cards and button guide](docs/screenshots/actions.png)
+
+</details>
+
+<details>
+<summary>My Watches — collection, exact models, local photos and trust</summary>
+
+Register a supported watch before pairing, link the physical unit explicitly, and keep a favorite on the Dashboard. Your last saved readings stay available offline.
+
+![macOS My Watches preview with sidebar and paired and unpaired sample watches](docs/screenshots/my-watches.png)
+
+</details>
+
+These are offscreen previews of the macOS views with sample data, not evidence of Windows visual or physical-device testing. Native materials and controls vary with macOS version, window focus and desktop background. The Actions preview uses a taller window to show the full page; smaller windows scroll within the content area.
 
 See [Validation and remaining acceptance work](docs/VALIDATION.md) for test scope, dependency maintenance notices and stable-release prerequisites.
 

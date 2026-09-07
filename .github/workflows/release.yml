@@ -288,7 +288,7 @@ jobs:
           $archive = "dist/windows/WatchBridge-v$env:VERSION-Windows-x64.zip"
           Compress-Archive -Path "$folder/*" -DestinationPath $archive -CompressionLevel Optimal -Force
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-          "$hash  $(Split-Path -Leaf $archive)" | Set-Content "dist/windows/WatchBridge-v$env:VERSION-Windows-x64.sha256" -Encoding ascii
+          [IO.File]::WriteAllText("dist/windows/WatchBridge-v$env:VERSION-Windows-x64.sha256", "$hash  $(Split-Path -Leaf $archive)`n", [Text.UTF8Encoding]::new($false))
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -353,6 +353,11 @@ jobs:
               --draft --verify-tag --generate-notes --title "WatchBridge $VERSION"
           else
             [[ "$(gh api "repos/$GH_REPO" --jq .private)" == "true" ]] || { echo "Preview publishing currently requires a private repository." >&2; exit 1; }
+            main_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)"
+            if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
+              echo "main advanced during the build. Start a fresh preview from main; artifacts must match their source and the token cannot publish changed historical workflows." >&2
+              exit 1
+            fi
             tag="preview-v${VERSION}-${GITHUB_RUN_NUMBER}"
             gh release create "$tag" dist/*.dmg dist/*.zip dist/*.sha256 \
               --draft --prerelease --target "$GITHUB_SHA" \

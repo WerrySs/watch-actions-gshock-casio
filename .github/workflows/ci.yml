@@ -179,7 +179,7 @@ jobs:
           $archive = "dist/windows/WatchBridge-v$version-Windows-x64.zip"
           Compress-Archive -Path "$folder/*" -DestinationPath $archive -CompressionLevel Optimal
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-          "$hash  $(Split-Path -Leaf $archive)" | Set-Content "dist/windows/WatchBridge-v$version-Windows-x64.sha256" -Encoding ascii
+          [IO.File]::WriteAllText("dist/windows/WatchBridge-v$version-Windows-x64.sha256", "$hash  $(Split-Path -Leaf $archive)`n", [Text.UTF8Encoding]::new($false))
       - name: Upload Windows review downloads
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
