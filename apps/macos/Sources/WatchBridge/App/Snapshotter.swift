@@ -75,6 +75,7 @@ enum Snapshotter {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        app.appearance = NSAppearance(named: .darkAqua)
         let fullWindow = CommandLine.arguments.contains("--full-window")
         let minimumSize = CommandLine.arguments.contains("--minimum-size")
         let fullPage = CommandLine.arguments.contains("--full-page")
@@ -126,7 +127,8 @@ enum Snapshotter {
     private static func capture<V: View>(_ view: V, size: CGSize, to url: URL) {
         let hosting = NSHostingView(rootView: view
             .environment(\.snapshotRendering, true)
-            .environment(\.controlActiveState, .key))
+            .environment(\.controlActiveState, .key)
+            .preferredColorScheme(.dark))
         hosting.frame = NSRect(origin: .zero, size: size)
         let window = SnapshotWindow(contentRect: hosting.frame,
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -149,6 +151,9 @@ enum Snapshotter {
     /// CI desktops can be smaller than the requested render. Never let AppKit silently
     /// resize the offscreen fixture to the runner's screen and change the tested layout.
     private final class SnapshotWindow: NSWindow {
+        // Render an active-looking fixture without activating the app or stealing focus.
+        override var isKeyWindow: Bool { true }
+        override var isMainWindow: Bool { true }
         override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
             frameRect
         }
