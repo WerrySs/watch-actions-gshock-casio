@@ -40,6 +40,7 @@ All notable changes are documented here. This project follows Semantic Versionin
 - Preserve legacy action settings on upgrade; Windows schema 3 prevents older builds from overwriting layer data. Keyboard/layer changes are in CI review builds, not the existing Beta 3 packages.
 - Include keyboard, layer and settings-banner sample-data previews in PR CI artifacts for visual review.
 - Render Windows client-area fixtures at default/minimum sizes without BLE or action callbacks, reject blank output, and refresh the inspected macOS README images.
+- Use an optional CPU-rendered fixture build for hosted Windows visual checks, with captured process diagnostics and dependency-policy coverage; downloadable apps retain their production renderer.
 - Rename the private repository to `WerrySs/watch-actions-gshock-casio`; retain the independent WatchBridge app name.
 - Attach universal macOS and Windows x64 downloads to CI; support labeled experimental beta releases with an explicit opt-in for public preview publishing.
 - Scan complete Git history with a checksum-pinned Gitleaks binary and redact scanner output; aggregate native and dependency jobs in one required CI check for every PR.

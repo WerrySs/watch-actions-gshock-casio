@@ -30,6 +30,8 @@ Slint defines a minimum 1080 × 700 window, two real cards per action row, equal
 
 The action-layer review adds a sample-data Slint renderer with no state loading, BLE or action callbacks. Local client-area renders caught clipped key labels/footer and unequal card widths/tall Test buttons; these were corrected with explicit bounds, padding and equal column widths. Oversized windows produced blank GPU readbacks, not evidence of a blank end-user app, so fixtures use default/minimum windows and scroll offsets instead. CI also rejects empty captures. On Windows the workflow produces PNG previews from BMP readbacks using the OS encoder, without adding a screenshot library or capturing the desktop/native frame. Review artifacts cover the Actions header, each card row and the keyboard at both widths; they are not Mica or input-delivery certification.
 
+The first hosted capture attempt (CI 34202387610) failed after native tests and packaging, without renderer diagnostics from the GUI process. The workflow now captures sample-process stderr and builds an optional `software-preview` fixture tool, selecting Slint's CPU renderer for reproducible layout inspection without a hosted GPU requirement. Production archives are built/uploaded before that feature is enabled and keep their renderer unchanged. Do not use CPU captures to claim that the failed GPU path, interactive scaling or end-user GPU behavior was validated.
+
 ## Interactive checks still required
 
 On physical macOS and Windows installations:

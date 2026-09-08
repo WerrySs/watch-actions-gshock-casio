@@ -171,8 +171,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Build CPU-rendered Windows visual fixture tool
+        run: cargo build --locked --release --package watchbridge-windows --features software-preview
       - name: Render Windows sample-data visual previews
         shell: pwsh
+        env:
+          # Hosted runners need not provide a usable OpenGL context/readback.
+          # Review downloads above retain the default production renderer.
+          SLINT_BACKEND: winit-software
         run: |
           $ErrorActionPreference = "Stop"
           Add-Type -AssemblyName System.Drawing
@@ -182,11 +188,17 @@ jobs:
             foreach ($size in @("default", "minimum")) {
               $bmp = Join-Path $folder "$page-$size.bmp"
               $png = Join-Path $folder "$page-$size.png"
+              $stderr = Join-Path $folder "$page-$size.stderr.txt"
+              $stdout = Join-Path $folder "$page-$size.stdout.txt"
               $flags = switch ($page) { "keyboard" { "--keyboard" } "action-cards" { "--cards" } "second-row" { "--second-row" } default { "" } }
               if ($size -eq "minimum") { $flags += " --minimum-size" }
-              $process = Start-Process -FilePath "target/release/watchbridge-windows.exe" -ArgumentList "--snapshot `"$bmp`" $flags" -PassThru
+              Write-Output "Rendering $page ($size) with the CPU fixture renderer."
+              $process = Start-Process -FilePath "target/release/watchbridge-windows.exe" -ArgumentList "--snapshot `"$bmp`" $flags" -RedirectStandardError $stderr -RedirectStandardOutput $stdout -PassThru
               if (-not $process.WaitForExit(30000)) { $process.Kill(); throw "Windows visual preview timed out." }
-              if ($process.ExitCode -ne 0) { throw "Windows visual preview failed." }
+              if ($process.ExitCode -ne 0) {
+                Get-Content $stderr, $stdout
+                throw "Windows visual preview failed with exit code $($process.ExitCode)."
+              }
               $bitmap = [Drawing.Bitmap]::new($bmp)
               try { $bitmap.Save($png, [Drawing.Imaging.ImageFormat]::Png) } finally { $bitmap.Dispose() }
             }

@@ -37,6 +37,7 @@ exceptions = [
   { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-core-macros" },
   { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-renderer-femtovg" },
   { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-renderer-skia" },
+  { allow = ["LicenseRef-Slint-Royalty-free-2.0"], crate = "i-slint-renderer-software" },
 ]
 
 [sources]

@@ -10,6 +10,10 @@ license.workspace = true
 repository.workspace = true
 build = "build.rs"
 
+[features]
+# Optional CPU renderer for CI layout fixtures; not enabled in distributed apps.
+software-preview = ["slint/renderer-software"]
+
 [dependencies]
 anyhow = "1.0.100"
 btleplug = "0.13.0"

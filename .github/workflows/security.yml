@@ -97,6 +97,8 @@ jobs:
         run: cargo audit
       - name: Check licenses, sources, and dependency policy
         run: cargo deny check --hide-inclusion-graph advisories bans licenses sources
+      - name: Check optional CPU preview dependencies
+        run: cargo deny --features watchbridge-windows/software-preview check --hide-inclusion-graph advisories bans licenses sources
       - name: Verify bundled third-party license texts
         run: |
           cargo about generate --workspace --locked --fail .github/licenses.hbs --output-file THIRD_PARTY_LICENSES.txt
