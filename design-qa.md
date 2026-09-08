@@ -6,7 +6,7 @@ The committed images in `docs/screenshots/` are **offscreen full-window previews
 
 The intended layout retains the reference's prominent watch image, cached status and two-column action grid. A neutral shared watch PNG replaces manufacturer imagery; both Dashboard and button guide use it. Action cards reserve common header/control/value/help regions.
 
-The accepted images were generated in [CI run 34106828540](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34106828540), from commit `44d413b`, and inspected before inclusion. Default previews are 1240 × 800; the full Actions page uses 1240 × 1400. The same run includes 1080 × 700 minimum-size views for review.
+The current Dashboard, Actions and keyboard images were generated in [CI run 34200458420](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34200458420), from commit `496794e`, and inspected before inclusion. Default previews are 1240 × 800; the full Actions page uses 1240 × 1680. The same run includes 1080 × 700 minimum-size views and minimum-width full-page layer cards. My Watches remains the inspected [CI run 34106828540](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34106828540) fixture from `44d413b`; its view has not changed.
 
 1. **Dashboard:** the default-size view fits saved readings and four gesture rows alongside the watch and sidebar. Identity controls are consolidated. At minimum size the content scrolls and long action labels truncate; interactive keyboard/tooltips still need checking.
 2. **Actions:** the full-page view shows four equal-height cards with aligned headers/selectors and the A/B/C/D guide. The default/minimum window scrolls inside the content, leaving navigation in place.
@@ -27,6 +27,8 @@ Local sample-data renders were inspected for the keyboard, layer cards, Dashboar
 ## Windows
 
 Slint defines a minimum 1080 × 700 window, two real cards per action row, equal card heights and common header/selector regions. Native CI can validate compilation, tests and startup. It does **not** establish that Mica, scaling or every interaction works on an end-user Windows desktop.
+
+The action-layer review adds a sample-data Slint renderer with no state loading, BLE or action callbacks. Local client-area renders caught clipped key labels/footer and unequal card widths/tall Test buttons; these were corrected with explicit bounds, padding and equal column widths. Oversized windows produced blank GPU readbacks, not evidence of a blank end-user app, so fixtures use default/minimum windows and scroll offsets instead. CI also rejects empty captures. On Windows the workflow produces PNG previews from BMP readbacks using the OS encoder, without adding a screenshot library or capturing the desktop/native frame. Review artifacts cover the Actions header, each card row and the keyboard at both widths; they are not Mica or input-delivery certification.
 
 ## Interactive checks still required
 

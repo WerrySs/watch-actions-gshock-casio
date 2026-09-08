@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod snapshots;
 mod state;
 
 #[cfg(target_os = "windows")]
@@ -28,6 +29,25 @@ slint::include_modules!();
 
 fn main() -> anyhow::Result<()> {
     let ui = MainWindow::new().context("could not create the WatchBridge window")?;
+    if let Some(index) = std::env::args().position(|arg| arg == "--snapshot") {
+        let path = std::env::args()
+            .nth(index + 1)
+            .ok_or_else(|| anyhow!("--snapshot requires a new BMP output path"))?;
+        // Return before loading saved state, installing action callbacks, or starting Bluetooth.
+        return snapshots::run(
+            ui,
+            path.into(),
+            env_flag("--keyboard"),
+            env_flag("--minimum-size"),
+            if env_flag("--second-row") {
+                880.0
+            } else if env_flag("--cards") {
+                370.0
+            } else {
+                0.0
+            },
+        );
+    }
     let demo = env_flag("--demo") || env_flag("--smoke-test");
     let state = if demo {
         SharedState::demo()

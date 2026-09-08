@@ -171,6 +171,34 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Render Windows sample-data visual previews
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Add-Type -AssemblyName System.Drawing
+          $folder = Join-Path $env:RUNNER_TEMP "watchbridge-windows-previews"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          foreach ($page in @("actions", "action-cards", "second-row", "keyboard")) {
+            foreach ($size in @("default", "minimum")) {
+              $bmp = Join-Path $folder "$page-$size.bmp"
+              $png = Join-Path $folder "$page-$size.png"
+              $flags = switch ($page) { "keyboard" { "--keyboard" } "action-cards" { "--cards" } "second-row" { "--second-row" } default { "" } }
+              if ($size -eq "minimum") { $flags += " --minimum-size" }
+              $process = Start-Process -FilePath "target/release/watchbridge-windows.exe" -ArgumentList "--snapshot `"$bmp`" $flags" -PassThru
+              if (-not $process.WaitForExit(30000)) { $process.Kill(); throw "Windows visual preview timed out." }
+              if ($process.ExitCode -ne 0) { throw "Windows visual preview failed." }
+              $bitmap = [Drawing.Bitmap]::new($bmp)
+              try { $bitmap.Save($png, [Drawing.Imaging.ImageFormat]::Png) } finally { $bitmap.Dispose() }
+            }
+          }
+      - name: Upload Windows layout previews for visual review
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: WatchBridge-Windows-layout-previews
+          path: ${{ runner.temp }}/watchbridge-windows-previews/*.png
+          if-no-files-found: error
+          retention-days: 14
+
   required:
     name: Required checks
     if: always()

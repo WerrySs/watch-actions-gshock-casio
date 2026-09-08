@@ -70,9 +70,18 @@ On macOS, click the watch name to choose the Dashboard watch or follow the most 
 <details>
 <summary>Actions — physical button guide and aligned gesture cards</summary>
 
-See where A, B, C and D are, configure each supported gesture, and choose when to send the time. Test buttons are manual actions; physical watches require explicit trust.
+See where A, B, C and D are, configure each supported gesture in Normal or Alternate, and choose when to send the time. The development preview below reserves FIND for mode switching. Test buttons are manual actions; physical watches require explicit trust.
 
 ![Full-page macOS Actions preview with sidebar, four aligned cards and button guide](docs/screenshots/actions.png)
+
+</details>
+
+<details>
+<summary>Keyboard actions — visual keys, modifiers and repeated presses</summary>
+
+Development builds include a local visual key picker. Choose a key, optionally add modifiers and repeat the chord 1–10 times. No typing is recorded. Read the [setup and safe-testing guide](docs/ACTION_LAYERS.md) before use.
+
+![macOS visual keyboard editor with Command plus Right Arrow repeated twice](docs/screenshots/keyboard.png)
 
 </details>
 
