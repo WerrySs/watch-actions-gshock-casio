@@ -45,6 +45,9 @@ final class WatchStore {
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored private let persists: Bool
     private(set) var actionRunning = false
+    private(set) var actionModes = ActionModes()
+    var editingLayer: ActionLayer = .normal
+    var panelActionLayer: ActionLayer { actionModes.layer(for: panelWatch?.id) }
 
     init(bluetooth: Bool = true) {
         central = WatchCentral(enabled: bluetooth)
@@ -237,11 +240,7 @@ final class WatchStore {
                 // App handshake expected by the watch while the connection is active.
                 _ = try? await central.request([WatchCode.appInfo], expect: WatchCode.appInfo, timeout: 5)
 
-                if currentWatch?.canRunMacActions == true {
-                    runAction(config.action(for: event), for: event)
-                } else {
-                    addTrace("Blocked \(event.display): this physical watch is not trusted to control the Mac")
-                }
+                handleActionEvent(event)
 
                 if let cond = WatchProtocol.decodeCondition(try await central.request([WatchCode.condition], expect: WatchCode.condition)) {
                     battery = cond.battery; temperature = cond.temperature
@@ -321,11 +320,33 @@ final class WatchStore {
         persistPending()
     }
 
-    func setAction(_ action: WatchAction, for event: WatchButtonEvent) {
+    func setAction(_ action: WatchAction, for event: WatchButtonEvent, layer: ActionLayer = .normal) {
+        guard storageWarning == nil, event != .unknown else { return }
         var action = action
         action.value = RustCore.sanitize(action.value, limit: 500)
-        config.actions[event] = action
+        if layer == .alternate && event != .auto { config.alternateActions[event] = action }
+        else { config.actions[event] = action }
         persistConfig()
+    }
+
+    func setModeSwitch(_ event: WatchButtonEvent?) {
+        guard storageWarning == nil, event != .auto, event != .unknown else { return }
+        config.switchEvent = event
+        actionModes.reset()
+        persistConfig()
+    }
+
+    func resetActionModes() { actionModes.reset(); showNotice("All watches are back in Normal mode.") }
+
+    private func handleActionEvent(_ event: WatchButtonEvent) {
+        guard storageWarning == nil, !actionRunning, let watch = currentWatch else { return }
+        switch actionModes.resolve(config: config, id: watch.id, event: event, authorized: watch.canRunMacActions) {
+        case .ignored: addTrace("Blocked gesture: this physical watch is not trusted to control the Mac")
+        case .switched(let layer):
+            addTrace("\(event.display): switched to \(layer.title) mode")
+            showNotice("\(watch.title) · \(layer.title) mode")
+        case .action(let action): runAction(action, for: event)
+        }
     }
 
     func setSyncTime(_ on: Bool, for event: WatchButtonEvent) {
@@ -338,20 +359,30 @@ final class WatchStore {
         persistConfig()
     }
 
-    func testAction(for event: WatchButtonEvent) {
+    func testAction(for event: WatchButtonEvent, layer: ActionLayer = .normal) {
+        guard config.switchEvent != event else { showNotice("Use the trusted physical watch to switch modes."); return }
         flash(event)
-        runAction(config.action(for: event), for: event)
+        runAction(config.action(for: event, layer: layer), for: event, manual: true)
     }
 
-    private func runAction(_ action: WatchAction, for event: WatchButtonEvent) {
+    private func runAction(_ action: WatchAction, for event: WatchButtonEvent, manual: Bool = false) {
         guard storageWarning == nil, action.kind != .none, event != .unknown, !actionRunning else { return }
         actionRunning = true
         // Persistent history never includes URLs, phrases, app names, or other configured values.
         addTrace("Action for \(event.display): \(action.kind.label)")
         Task { [weak self] in
+            if manual && action.kind == .keyboard {
+                self?.showNotice("Keyboard test in 3 seconds. Focus a safe window and release modifier keys.")
+                try? await Task.sleep(for: .seconds(3))
+            }
+            guard !Task.isCancelled, let self, self.storageWarning == nil else {
+                self?.actionRunning = false
+                return
+            }
             let result = await ActionRunner.run(action)
-            self?.actionRunning = false
-            self?.addTrace("Action finished: \(result)")
+            self.actionRunning = false
+            self.addTrace("Action finished: \(result)")
+            if manual { self.showNotice(result) }
         }
     }
 
@@ -407,6 +438,7 @@ final class WatchStore {
             return
         }
         watches[index].allowsMacActions = allowed
+        actionModes.forget(watchID)
         sortAndPersistWatches()
         showNotice(allowed
             ? "This watch may now start actions on the Mac."
@@ -543,6 +575,7 @@ final class WatchStore {
         watches[index].nickname = manual.nickname
         if let image = manual.imageFilename { watches[index].imageFilename = image }
         watches[index].allowsMacActions = false
+        actionModes.forget(physicalID)
         watches.removeAll { $0.id == manualID }
         if favoriteWatchID == manualID { setFavoriteWatch(physicalID) }
         if currentWatchID == manualID { currentWatchID = physicalID; restoreLastKnownState() }

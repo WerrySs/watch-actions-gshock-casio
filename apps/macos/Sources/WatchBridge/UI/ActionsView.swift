@@ -8,6 +8,7 @@ struct ActionsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 WatchButtonGuide()
+                ActionLayerControls()
                 VStack(alignment: .leading, spacing: 14) {
                     SectionTitle(
                         eyebrow: "Actions",
@@ -26,7 +27,7 @@ struct ActionsView: View {
                         spacing: 14
                     ) {
                         ForEach(WatchButtonEvent.configurable) { event in
-                            ActionEditor(event: event, equalized: true)
+                            ActionEditor(event: event, equalized: true, layer: store.editingLayer)
                                 .frame(height: 318)
                         }
                     }
@@ -76,9 +77,12 @@ struct ActionEditor: View {
     @Environment(WatchStore.self) private var store
     let event: WatchButtonEvent
     var equalized = false
+    var layer: ActionLayer = .normal
+    @State private var showingKeyboard = false
 
     var body: some View {
-        let action = store.config.action(for: event)
+        let action = store.config.action(for: event, layer: layer)
+        let isSwitch = store.config.switchEvent == event
         Tile(padding: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 12) {
@@ -89,30 +93,46 @@ struct ActionEditor: View {
                     }
                     Spacer()
                     Button {
-                        store.testAction(for: event)
+                        store.testAction(for: event, layer: layer)
                     } label: { Label("Test", systemImage: "play.fill") }
                         .buttonStyle(.ghost)
-                        .disabled(action.kind == .none)
+                        .disabled(action.kind == .none || isSwitch || store.actionRunning)
                         .help("Run this action now without touching the watch")
                 }
                 .frame(minHeight: equalized ? 88 : nil, alignment: .top)
 
-                FieldLabel(label: "Computer action") {
-                    Picker("", selection: Binding(
-                        get: { action.kind },
-                        set: { store.setAction(WatchAction(kind: $0, value: $0.needsValue ? action.value : ""), for: event) })) {
-                        ForEach(ActionKind.allCases) { kind in
-                            Label(kind.label, systemImage: kind.systemImage).tag(kind)
+                FieldLabel(label: isSwitch ? "Reserved in both layers" : (event == .auto ? "Computer action · Normal only" : "Computer action")) {
+                    if isSwitch {
+                        Label("Switch Normal ↔ Alternate", systemImage: "square.2.layers.3d")
+                            .font(.callout.weight(.semibold)).foregroundStyle(Theme.accent)
+                            .frame(height: 28)
+                    } else {
+                        Picker("", selection: Binding(
+                            get: { action.kind },
+                            set: { store.setAction(WatchAction(kind: $0, value: $0.needsValue ? action.value : "", keyboard: $0 == .keyboard ? action.keyboard ?? KeyboardShortcut() : action.keyboard), for: event, layer: layer) })) {
+                            ForEach(ActionKind.allCases) { kind in
+                                Label(kind.label, systemImage: kind.systemImage).tag(kind)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.large)
+                        .frame(height: 28)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.large)
                 }
-                if action.kind.needsValue {
+                if isSwitch {
+                    Text("The saved computer action is paused. Use the same gesture to switch back.")
+                        .font(.callout).foregroundStyle(Theme.text2).frame(minHeight: 48)
+                } else if action.kind == .keyboard {
+                    Button { showingKeyboard = true } label: {
+                        HStack { Label(action.summary, systemImage: "keyboard"); Spacer(); Image(systemName: "slider.horizontal.3") }
+                    }
+                    .buttonStyle(.ghost).help("Choose keys, modifiers and repetitions")
+                    .frame(minHeight: 48)
+                } else if action.kind.needsValue {
                     FieldLabel(label: action.kind.valuePrompt) {
                         DarkField(placeholder: action.kind.valuePrompt,
-                                  text: Binding(get: { action.value }, set: { store.setAction(WatchAction(kind: action.kind, value: $0), for: event) }),
+                                  text: Binding(get: { action.value }, set: { store.setAction(WatchAction(kind: action.kind, value: $0), for: event, layer: layer) }),
                                   font: .system(size: 15, weight: .medium))
                     }
                 } else if equalized {
@@ -123,7 +143,7 @@ struct ActionEditor: View {
                     .hidden()
                 }
                 if equalized { Spacer(minLength: 0) }
-                if !hint(for: action.kind).isEmpty {
+                if !isSwitch && !hint(for: action.kind).isEmpty {
                     Label(hint(for: action.kind), systemImage: "info.circle")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.text3)
@@ -134,6 +154,11 @@ struct ActionEditor: View {
             .frame(maxWidth: .infinity, maxHeight: equalized ? .infinity : nil, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(isPresented: $showingKeyboard) {
+            KeyboardShortcutEditor(shortcut: action.keyboard ?? KeyboardShortcut()) { shortcut in
+                store.setAction(WatchAction(kind: .keyboard, keyboard: shortcut), for: event, layer: layer)
+            }
+        }
     }
 
     private func hint(for kind: ActionKind) -> String {
@@ -142,7 +167,39 @@ struct ActionEditor: View {
         case .sound: "Requests attention, plays three alerts, and says “Here I am”."
         case .say: "The Mac speaks the configured phrase aloud."
         case .none: "No computer action runs for this gesture."
+        case .keyboard: "Keys target the focused app. Test waits 3 seconds; release held modifiers first."
         default: ""
+        }
+    }
+}
+
+@MainActor
+struct ActionLayerControls: View {
+    @Environment(WatchStore.self) private var store
+    var body: some View {
+        Tile {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    SectionTitle(eyebrow: "Action layers", title: "One gesture, another set of actions")
+                    Spacer()
+                    Picker("Switch modes with", selection: Binding(
+                        get: { store.config.switchEvent?.rawValue ?? "" },
+                        set: { store.setModeSwitch(WatchButtonEvent(rawValue: $0)) })) {
+                        Text("Disabled").tag("")
+                        ForEach([WatchButtonEvent.find, .rightShort, .leftLong]) { event in Text(event.display).tag(event.rawValue) }
+                    }.frame(width: 245)
+                }
+                HStack {
+                    Picker("Editing layer", selection: Binding(get: { store.editingLayer }, set: { store.editingLayer = $0 })) {
+                        ForEach(ActionLayer.allCases) { layer in Text(layer.title).tag(layer) }
+                    }.pickerStyle(.segmented).frame(width: 265)
+                    Spacer()
+                    Text("Dashboard watch: \(store.panelActionLayer.title)").font(.callout).foregroundStyle(Theme.text2)
+                    Button("Reset to Normal") { store.resetActionModes() }.buttonStyle(.ghost)
+                }
+                Text("The switch replaces that gesture in both layers. Each trusted watch keeps its own mode until reset or app restart. AUTO always uses Normal; watch syncing is unchanged.")
+                    .font(.caption).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

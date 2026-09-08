@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod snapshots;
 mod state;
 
 #[cfg(target_os = "windows")]
@@ -17,15 +18,36 @@ use chrono::Local;
 use directories::ProjectDirs;
 use slint::{ModelRc, Timer, TimerMode, VecModel};
 use state::SharedState;
+use watchbridge_core::keyboard::{KEYS, KeyboardShortcut};
 use watchbridge_core::model::{
     ActionKind, SavedWatch, WatchAction, WatchButtonEvent, WatchSettings, format_duration,
     sanitize_single_line,
 };
+use watchbridge_core::modes::ActionLayer;
 
 slint::include_modules!();
 
 fn main() -> anyhow::Result<()> {
     let ui = MainWindow::new().context("could not create the WatchBridge window")?;
+    if let Some(index) = std::env::args().position(|arg| arg == "--snapshot") {
+        let path = std::env::args()
+            .nth(index + 1)
+            .ok_or_else(|| anyhow!("--snapshot requires a new BMP output path"))?;
+        // Return before loading saved state, installing action callbacks, or starting Bluetooth.
+        return snapshots::run(
+            ui,
+            path.into(),
+            env_flag("--keyboard"),
+            env_flag("--minimum-size"),
+            if env_flag("--second-row") {
+                880.0
+            } else if env_flag("--cards") {
+                370.0
+            } else {
+                0.0
+            },
+        );
+    }
     let demo = env_flag("--demo") || env_flag("--smoke-test");
     let state = if demo {
         SharedState::demo()
@@ -43,6 +65,7 @@ fn main() -> anyhow::Result<()> {
         "The native Windows client is available on Windows",
     );
 
+    install_keyboard_keys(&ui);
     install_callbacks(&ui, Arc::clone(&state));
 
     #[cfg(target_os = "windows")]
@@ -111,6 +134,7 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
                 .write()
                 .link_registration(manual.as_str(), physical.as_str());
             if linked {
+                state.runtime.write().action_modes.forget(physical.as_str());
                 state.save();
                 state.trace(
                     "Linked registration to the selected physical watch; actions remain blocked",
@@ -192,6 +216,11 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
                 watch.allows_computer_actions = !watch.allows_computer_actions;
             }
             drop(data);
+            state
+                .runtime
+                .write()
+                .action_modes
+                .forget(identifier.as_str());
             state.save();
         }
     });
@@ -210,15 +239,29 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
                 .and_then(|index| ActionKind::ALL.get(index))
                 .copied()
                 .unwrap_or(ActionKind::None);
+            let layer = editing_layer(&state, event);
+            let keyboard = state
+                .data
+                .read()
+                .actions
+                .action_in_layer(event, layer)
+                .keyboard;
             let action = WatchAction {
                 kind,
+                keyboard: keyboard
+                    .or_else(|| (kind == ActionKind::Keyboard).then(KeyboardShortcut::default)),
                 value: if kind.needs_value() {
                     sanitize_single_line(value.as_str(), 240)
                 } else {
                     String::new()
                 },
             };
-            state.data.write().actions.actions.insert(event, action);
+            state
+                .data
+                .write()
+                .actions
+                .actions_mut(layer)
+                .insert(event, action);
             state.save();
         }
     });
@@ -232,8 +275,9 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
             let Some(event) = event_for_code(code.as_str()) else {
                 return;
             };
+            let layer = editing_layer(&state, event);
             let mut data = state.data.write();
-            let action = data.actions.actions.entry(event).or_default();
+            let action = data.actions.actions_mut(layer).entry(event).or_default();
             if action.kind.needs_value() {
                 action.value = sanitize_single_line(value.as_str(), 240);
             }
@@ -248,7 +292,14 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
             let Some(event) = event_for_code(code.as_str()) else {
                 return;
             };
-            let action = state.data.read().actions.action(event);
+            if state.data.read().actions.switch_event == Some(event) {
+                return;
+            }
+            let action = state
+                .data
+                .read()
+                .actions
+                .action_in_layer(event, editing_layer(&state, event));
             if action.kind != ActionKind::None {
                 #[cfg(target_os = "windows")]
                 {
@@ -260,6 +311,23 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
                     let result = std::thread::Builder::new()
                         .name("watchbridge-action-test".to_owned())
                         .spawn(move || {
+                            if action.kind == ActionKind::Keyboard {
+                                {
+                                    let mut runtime = state.runtime.write();
+                                    runtime.last_action_result = Some(
+                                        "Keyboard test in 3 seconds: focus a safe window"
+                                            .to_owned(),
+                                    );
+                                    runtime.push_trace("Preparing manual keyboard test");
+                                }
+                                std::thread::sleep(Duration::from_secs(3));
+                            }
+                            if !state.can_mutate() {
+                                state.finish_action(
+                                    "Action cancelled: storage is protected".to_owned(),
+                                );
+                                return;
+                            }
                             let outcome = actions::run_sync(&action);
                             state.finish_action(outcome.summary);
                         });
@@ -270,6 +338,127 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
             }
         }
     });
+
+    ui.on_change_editing_layer({
+        let state = Arc::clone(&state);
+        move |index| {
+            let mut runtime = state.runtime.write();
+            runtime.editing_layer = if index == 1 {
+                ActionLayer::Alternate
+            } else {
+                ActionLayer::Normal
+            };
+            runtime.last_update = chrono::Utc::now();
+        }
+    });
+    ui.on_change_mode_switch({
+        let state = Arc::clone(&state);
+        move |code| {
+            if !state.can_mutate() {
+                return;
+            }
+            let event = event_for_code(code.as_str()).filter(|event| {
+                !matches!(
+                    event,
+                    WatchButtonEvent::Automatic | WatchButtonEvent::Unknown
+                )
+            });
+            state.data.write().actions.switch_event = event;
+            state.runtime.write().action_modes.reset();
+            state.save();
+        }
+    });
+    ui.on_reset_modes({
+        let state = Arc::clone(&state);
+        move || {
+            state.runtime.write().action_modes.reset();
+            state.trace("All watches reset to Normal mode");
+        }
+    });
+    ui.on_edit_keyboard({
+        let state = Arc::clone(&state);
+        let weak = ui.as_weak();
+        move |code| {
+            let (Some(event), Some(ui)) = (event_for_code(code.as_str()), weak.upgrade()) else {
+                return;
+            };
+            let layer = editing_layer(&state, event);
+            let shortcut = state
+                .data
+                .read()
+                .actions
+                .action_in_layer(event, layer)
+                .keyboard
+                .unwrap_or_default();
+            ui.set_keyboard_layer(if layer == ActionLayer::Alternate {
+                1
+            } else {
+                0
+            });
+            ui.set_keyboard_label(
+                shortcut
+                    .definition()
+                    .map_or("Select a key", |k| k.label)
+                    .into(),
+            );
+            ui.set_keyboard_key(shortcut.key.into());
+            ui.set_keyboard_control(shortcut.control);
+            ui.set_keyboard_alt(shortcut.alt);
+            ui.set_keyboard_shift(shortcut.shift);
+            ui.set_keyboard_meta(shortcut.meta);
+            ui.set_keyboard_repetitions(i32::from(shortcut.repetitions));
+            ui.set_keyboard_event(code);
+        }
+    });
+    ui.on_save_keyboard({
+        let state = Arc::clone(&state);
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let Some(event) = event_for_code(ui.get_keyboard_event().as_str()) else {
+                return;
+            };
+            if !state.can_mutate() {
+                return;
+            }
+            let shortcut = KeyboardShortcut {
+                key: ui.get_keyboard_key().to_string(),
+                control: ui.get_keyboard_control(),
+                alt: ui.get_keyboard_alt(),
+                shift: ui.get_keyboard_shift(),
+                meta: ui.get_keyboard_meta(),
+                repetitions: u8::try_from(ui.get_keyboard_repetitions()).unwrap_or(0),
+            };
+            if shortcut.definition().is_none() {
+                return;
+            }
+            let layer = if ui.get_keyboard_layer() == 1 && event != WatchButtonEvent::Automatic {
+                ActionLayer::Alternate
+            } else {
+                ActionLayer::Normal
+            };
+            state.data.write().actions.actions_mut(layer).insert(
+                event,
+                WatchAction {
+                    kind: ActionKind::Keyboard,
+                    value: String::new(),
+                    keyboard: Some(shortcut),
+                },
+            );
+            state.save();
+            ui.set_keyboard_event("".into());
+        }
+    });
+}
+
+fn editing_layer(state: &SharedState, event: WatchButtonEvent) -> ActionLayer {
+    if event == WatchButtonEvent::Automatic {
+        ActionLayer::Normal
+    } else {
+        state.runtime.read().editing_layer
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -281,11 +470,47 @@ fn install_bluetooth_callbacks(ui: &MainWindow, bluetooth: &bluetooth::Bluetooth
     ui.on_disconnect(move || disconnect_controller.send(bluetooth::BluetoothCommand::Disconnect));
 }
 
+fn install_keyboard_keys(ui: &MainWindow) {
+    let keys = |row| {
+        ui_model(
+            KEYS.iter()
+                .filter(|k| k.row == row)
+                .map(|k| KeyCap {
+                    id: k.id.into(),
+                    label: k.label.into(),
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+    ui.set_keyboard_row_0(keys(0));
+    ui.set_keyboard_row_1(keys(1));
+    ui.set_keyboard_row_2(keys(2));
+    ui.set_keyboard_row_3(keys(3));
+    ui.set_keyboard_row_4(keys(4));
+    ui.set_keyboard_row_5(keys(5));
+}
+
 fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
     let data = shared.data.read().clone();
     let runtime = shared.runtime.read().clone();
     let watch = data.panel_watch();
-
+    ui.set_editing_layer(if runtime.editing_layer == ActionLayer::Alternate {
+        1
+    } else {
+        0
+    });
+    ui.set_mode_switch_index(match data.actions.switch_event {
+        Some(WatchButtonEvent::Find) => 1,
+        Some(WatchButtonEvent::Time) => 2,
+        Some(WatchButtonEvent::Connect) => 3,
+        _ => 0,
+    });
+    ui.set_active_layer(
+        watch
+            .map_or(ActionLayer::Normal, |w| runtime.action_modes.layer(&w.id))
+            .title()
+            .into(),
+    );
     ui.set_watch_model(
         watch
             .map(|item| item.effective_model())
@@ -358,16 +583,29 @@ fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
     );
 
     let action_rows = WatchButtonEvent::CONFIGURABLE.map(|event| {
-        let action = data.actions.action(event);
+        let action = data.actions.action_in_layer(event, runtime.editing_layer);
+        let is_switch = data.actions.switch_event == Some(event);
         ActionRow {
             code: event.code().into(),
             title: event.title().into(),
             detail: event.instructions().into(),
-            action: action.summary().into(),
+            action: if is_switch {
+                "Switch Normal ↔ Alternate".into()
+            } else {
+                action.summary().into()
+            },
+            is_keyboard: action.kind == ActionKind::Keyboard,
+            is_switch,
             kind_index: action_kind_index(action.kind),
             value: action.value.into(),
             needs_value: action.kind.needs_value(),
-            hint: action.kind.help().into(),
+            hint: if is_switch {
+                "The same gesture switches back to Normal. Watch syncing is unchanged.".into()
+            } else if event == WatchButtonEvent::Automatic {
+                "AUTO always uses the Normal action, regardless of the editing layer.".into()
+            } else {
+                action.kind.help().into()
+            },
         }
     });
     ui.set_first_action_rows(ui_model(action_rows[..2].to_vec()));

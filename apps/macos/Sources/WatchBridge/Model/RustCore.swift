@@ -3,6 +3,12 @@ import Foundation
 
 /// Small, ownership-safe bridge to the shared Rust protocol and validation engine.
 enum RustCore {
+    static let keyboardKeys: [KeyboardKey] = {
+        guard let pointer = wb_keyboard_catalog_json() else { return [] }
+        defer { wb_string_free(pointer) }
+        return (try? JSONDecoder().decode([KeyboardKey].self, from: Data(String(cString: pointer).utf8))) ?? []
+    }()
+
     static var version: String {
         guard let pointer = wb_core_version() else { return "unknown" }
         return String(cString: pointer)

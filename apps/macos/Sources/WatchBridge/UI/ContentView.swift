@@ -64,33 +64,23 @@ struct ContentView: View {
                 } else {
                     VisualEffect().ignoresSafeArea()
                 }
-                content.id(store.currentWatchID)
-                    .disabled(store.storageWarning != nil)
+                VStack(spacing: 0) {
+                    statusBanner
+                    content.id(store.currentWatchID)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .disabled(store.storageWarning != nil)
+                }
             }
         }
         .navigationTitle(selection?.title ?? "WatchBridge")
         .navigationSubtitle(store.navigationStatus)
-        .safeAreaInset(edge: .top) {
-            if let warning = store.storageWarning {
-                Label(warning, systemImage: "exclamationmark.shield")
-                    .font(.callout).padding().frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.regularMaterial)
-            } else if store.legacyPendingCount > 0 {
-                Text("Old unassigned changes were preserved but will not be sent. Recreate them for the intended physical watch.")
-                    .font(.callout).padding().frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.regularMaterial)
-            } else if [.reminders, .alarms, .settings].contains(selection ?? .watch), let watch = store.currentWatch {
-                Label("Changes target: \(watch.title)", systemImage: "applewatch")
-                    .font(.callout).padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.regularMaterial)
-            }
-        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    store.testAction(for: .find)
-                } label: { Label("Find this Mac", systemImage: "bell.and.waves.left.and.right") }
-                    .help("Run the FIND action without touching the watch")
+                    store.testAction(for: .find, layer: store.panelActionLayer)
+                } label: { Label("Test FIND action", systemImage: "bell.and.waves.left.and.right") }
+                    .disabled(store.config.switchEvent == .find || store.actionRunning || store.config.action(for: .find, layer: store.panelActionLayer).kind == .none)
+                    .help(store.config.switchEvent == .find ? "FIND is reserved for switching modes on the watch" : "Run the Dashboard watch's current FIND action without touching the watch")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -112,6 +102,28 @@ struct ContentView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: store.notice)
+    }
+
+    /// Lives in the detail column's layout, below the toolbar and above the page.
+    /// It never overlays the sidebar, scroll content, or page headings.
+    @ViewBuilder private var statusBanner: some View {
+        if let warning = store.storageWarning {
+            banner(warning, icon: "exclamationmark.shield")
+        } else if store.legacyPendingCount > 0 {
+            banner("Old unassigned changes were preserved but will not be sent. Recreate them for the intended physical watch.", icon: "info.circle")
+        } else if [.reminders, .alarms, .settings].contains(selection ?? .watch), let watch = store.currentWatch {
+            banner("Changes target: \(watch.title)", icon: "applewatch")
+        }
+    }
+
+    private func banner(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .background(.regularMaterial)
+            .overlay(alignment: .bottom) { Divider() }
     }
 
     @ViewBuilder private var content: some View {

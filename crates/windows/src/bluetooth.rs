@@ -412,7 +412,7 @@ async fn run_session_inner(
         bail!("Unknown connection event; no action or settings sent");
     }
     let watch_id = remember_watch(&shared, &identifier, &bluetooth_name)?;
-    let (watch_model, trusted, action, should_sync) = {
+    let (watch_model, should_sync) = {
         let data = shared.data.read();
         let watch = data
             .watches
@@ -421,8 +421,6 @@ async fn run_session_inner(
             .ok_or_else(|| anyhow!("the connected watch was removed before setup completed"))?;
         (
             watch.effective_model().to_owned(),
-            watch.allows_computer_actions,
-            data.actions.action(event),
             data.actions.sync_time_on.contains(&event),
         )
     };
@@ -440,15 +438,45 @@ async fn run_session_inner(
         .request(&[code::APP_INFO], code::APP_INFO, Duration::from_secs(5))
         .await;
 
-    if trusted && action.kind != watchbridge_core::model::ActionKind::None && shared.begin_action()
-    {
-        let action_shared = shared.clone();
-        tokio::spawn(async move {
-            let outcome = actions::run(action).await;
-            action_shared.finish_action(outcome.summary);
-        });
-    } else if !trusted && action.kind != watchbridge_core::model::ActionKind::None {
-        shared.trace("Computer action blocked until this physical watch is trusted");
+    if shared.begin_action() {
+        use watchbridge_core::modes::ActionResolution;
+        // Recheck current trust after the handshake; never use an earlier cached permission.
+        let resolution = {
+            let data = shared.data.read();
+            let trusted = data.watches.iter().any(|w| {
+                w.id == watch_id
+                    && w.is_linked()
+                    && !w.manually_registered
+                    && w.allows_computer_actions
+            });
+            shared
+                .runtime
+                .write()
+                .action_modes
+                .resolve(&data.actions, &watch_id, event, trusted)
+        };
+        match resolution {
+            ActionResolution::Action(action)
+                if action.kind != watchbridge_core::model::ActionKind::None =>
+            {
+                let action_shared = shared.clone();
+                tokio::spawn(async move {
+                    let outcome = actions::run(action).await;
+                    action_shared.finish_action(outcome.summary);
+                });
+            }
+            ActionResolution::Switched(layer) => {
+                let summary = format!("{}: switched to {} mode", event.code(), layer.title());
+                shared.trace(&summary);
+                shared.finish_action(summary);
+            }
+            ActionResolution::Ignored => shared.finish_action(
+                "Computer action blocked: this physical watch is not trusted".to_owned(),
+            ),
+            ActionResolution::Action(_) => {
+                shared.finish_action("No action configured for this gesture and layer".to_owned())
+            }
+        }
     }
 
     let mut record = ConnectionRecord::new(watch_id.clone(), watch_model, event);

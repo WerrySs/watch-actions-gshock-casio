@@ -1,4 +1,24 @@
-import { AboutSlint, Button, ComboBox, HorizontalBox, LineEdit, ScrollView, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, ComboBox, HorizontalBox, LineEdit, Palette, ScrollView, SpinBox, VerticalBox } from "std-widgets.slint";
+
+export struct KeyCap { id: string, label: string }
+
+component KeyboardRow inherits HorizontalBox {
+    in property <[KeyCap]> keys;
+    in property <string> selected-key;
+    callback choose(string, string);
+    padding: 0px;
+    spacing: 5px;
+    height: 38px;
+    for key in root.keys : Button {
+        text: key.label;
+        checkable: true;
+        checked: key.id == root.selected-key;
+        min-width: 28px;
+        horizontal-stretch: 1;
+        clicked => { root.choose(key.id, key.label); }
+        accessible-label: "Select " + key.id + " key";
+    }
+}
 
 export struct ActionRow {
     code: string,
@@ -9,6 +29,8 @@ export struct ActionRow {
     value: string,
     needs-value: bool,
     hint: string,
+    is-keyboard: bool,
+    is-switch: bool,
 }
 
 export struct WatchRow {
@@ -88,6 +110,7 @@ component PageHeading inherits VerticalBox {
     in property <string> title;
     in property <string> detail;
 
+    padding: 0px;
     spacing: 4px;
     Text { text: root.eyebrow; color: #8692a4; font-size: 11px; font-weight: 700; }
     Text { text: root.title; color: #f5f7fb; font-size: 27px; font-weight: 750; }
@@ -142,8 +165,11 @@ component ActionCard inherits Rectangle {
     callback test-action(string);
     callback change-action(string, int, string);
     callback change-value(string, string);
+    callback edit-keyboard(string);
 
-    height: 360px;
+    // Header + selector + optional value + hint have the same reserved height in every card.
+    height: 484px;
+    min-width: 0px;
     background: #ffffff0b;
     border-color: #ffffff18;
     border-width: 1px;
@@ -154,7 +180,8 @@ component ActionCard inherits Rectangle {
         spacing: 12px;
 
         HorizontalBox {
-            height: 116px;
+            height: 136px;
+            padding: 0px;
             spacing: 12px;
             alignment: start;
             Rectangle {
@@ -172,6 +199,7 @@ component ActionCard inherits Rectangle {
                 }
             }
             VerticalBox {
+                padding: 0px;
                 spacing: 5px;
                 Text {
                     text: root.action-row.title;
@@ -184,33 +212,57 @@ component ActionCard inherits Rectangle {
                 }
                 Text {
                     text: root.action-row.detail;
-                    height: 64px;
+                    height: 84px;
                     overflow: elide;
                     color: #aeb8c7;
                     font-size: 12px;
                     wrap: word-wrap;
                 }
             }
-            Button {
-                text: "Test";
-                enabled: root.action-row.kind-index != 0;
-                clicked => { root.test-action(root.action-row.code); }
+            Rectangle {
+                width: 62px; background: transparent;
+                Button {
+                    width: parent.width; height: 32px; y: 0px;
+                    text: "Test";
+                    enabled: root.action-row.kind-index != 0 && !root.action-row.is-switch;
+                    clicked => { root.test-action(root.action-row.code); }
+                }
             }
         }
 
-        Text { text: "Computer action"; color: #8792a3; font-size: 12px; font-weight: 600; }
-        action-picker := ComboBox {
-            model: root.action-options;
-            current-index: root.action-row.kind-index;
-            selected(value) => {
-                root.change-action(root.action-row.code, self.current-index, root.action-row.value);
+        Text { text: root.action-row.is-switch ? "Reserved in both layers" : (root.action-row.code == "AUTO" ? "Computer action · Normal only" : "Computer action"); color: #8792a3; font-size: 12px; font-weight: 600; }
+        Rectangle {
+            height: 34px;
+            background: transparent;
+            if !root.action-row.is-switch : ComboBox {
+                width: parent.width; height: parent.height;
+                model: root.action-options;
+                current-index: root.action-row.kind-index;
+                selected(value) => {
+                    root.change-action(root.action-row.code, self.current-index, root.action-row.value);
+                }
+            }
+            if root.action-row.is-switch : Text {
+                width: parent.width; text: "Switch Normal ↔ Alternate"; color: #65a8ff; font-size: 14px; font-weight: 600; vertical-alignment: center;
             }
         }
 
         Rectangle {
             height: 60px;
             background: transparent;
-            if root.action-row.needs-value : VerticalBox {
+            if root.action-row.is-switch : Text {
+                text: "The saved computer action is paused.\nUse the same gesture to switch back."; wrap: word-wrap; color: #aeb8c7; font-size: 12px;
+            }
+            if root.action-row.is-keyboard && !root.action-row.is-switch : VerticalBox {
+                padding: 0px; spacing: 5px;
+                Text { text: "Keys and repetitions"; color: #8792a3; font-size: 11px; font-weight: 600; }
+                Button {
+                    text: root.action-row.action + "  ·  Configure…";
+                    clicked => { root.edit-keyboard(root.action-row.code); }
+                }
+            }
+            if root.action-row.needs-value && !root.action-row.is-switch : VerticalBox {
+                padding: 0px;
                 spacing: 5px;
                 Text { text: "Action value"; color: #8792a3; font-size: 11px; font-weight: 600; }
                 value-input := LineEdit {
@@ -308,6 +360,8 @@ component DataListCard inherits Rectangle {
 }
 
 export component MainWindow inherits Window {
+    // The custom surfaces are dark; system light widgets would make labels unreadable.
+    init => { Palette.color-scheme = ColorScheme.dark; }
     title: "WatchBridge";
     preferred-width: 1240px;
     preferred-height: 780px;
@@ -316,6 +370,8 @@ export component MainWindow inherits Window {
     background: transparent;
 
     in-out property <int> selected-navigation: 0;
+    // Initial offset for sample-data renderer fixtures; normal interactive scrolling is unchanged.
+    in property <length> actions-preview-scroll: 0px;
     in-out property <string> new-watch-model: "GW-B5600";
     in-out property <string> new-watch-nickname: "";
     in property <string> watch-name: "Add or connect a watch";
@@ -329,6 +385,24 @@ export component MainWindow inherits Window {
     in property <string> watch-count-text: "0 saved watches";
     in property <string> history-count-text: "0 saved sessions";
     in property <string> last-action-text: "No action has run in this session";
+    in property <int> editing-layer;
+    in property <int> mode-switch-index;
+    in property <string> active-layer: "Normal";
+    in-out property <string> keyboard-event: "";
+    in-out property <int> keyboard-layer;
+    in-out property <string> keyboard-key: "right";
+    in-out property <string> keyboard-label: "→";
+    in-out property <bool> keyboard-control;
+    in-out property <bool> keyboard-alt;
+    in-out property <bool> keyboard-shift;
+    in-out property <bool> keyboard-meta;
+    in-out property <int> keyboard-repetitions: 1;
+    in property <[KeyCap]> keyboard-row-0;
+    in property <[KeyCap]> keyboard-row-1;
+    in property <[KeyCap]> keyboard-row-2;
+    in property <[KeyCap]> keyboard-row-3;
+    in property <[KeyCap]> keyboard-row-4;
+    in property <[KeyCap]> keyboard-row-5;
     in property <[ActionRow]> action-rows;
     in property <[ActionRow]> first-action-rows;
     in property <[ActionRow]> second-action-rows;
@@ -346,6 +420,7 @@ export component MainWindow inherits Window {
         "Lock the screen",
         "Toggle mute",
         "Play or pause media",
+        "Keyboard shortcut",
     ];
 
     callback select-navigation(int);
@@ -358,8 +433,16 @@ export component MainWindow inherits Window {
     callback test-action(string);
     callback scan-now;
     callback disconnect;
+    callback change-editing-layer(int);
+    callback change-mode-switch(string);
+    callback reset-modes;
+    callback edit-keyboard(string);
+    callback save-keyboard;
 
-    HorizontalBox {
+    if root.keyboard-event == "" : HorizontalBox {
+        width: parent.width;
+        height: parent.height;
+        padding: 0px;
         spacing: 0px;
 
         Rectangle {
@@ -467,7 +550,7 @@ export component MainWindow inherits Window {
                             HorizontalBox {
                                 spacing: 14px;
                                 MetricCard { icon: "◉"; label: "Last connection"; value: root.last-connection-text; }
-                                MetricCard { icon: "ϟ"; label: "Last computer action"; value: root.last-action-text; }
+                                MetricCard { icon: "ϟ"; label: "Last action · " + root.active-layer + " mode"; value: root.last-action-text; }
                             }
                             Rectangle {
                                 min-height: 190px;
@@ -586,6 +669,7 @@ export component MainWindow inherits Window {
 
             if root.selected-navigation == 5 : ScrollView {
                 viewport-width: self.width;
+                viewport-y: -root.actions-preview-scroll;
                 VerticalBox {
                     padding: 28px;
                     spacing: 18px;
@@ -600,26 +684,53 @@ export component MainWindow inherits Window {
                             Text { x: 142px; y: 95px; text: "D"; color: #4b9dff; }
                         }
                     }
-                    HorizontalBox {
-                        spacing: 14px;
-                        for row in root.first-action-rows : ActionCard {
-                            action-row: row;
-                            action-options: root.action-options;
-                            horizontal-stretch: 1;
-                            test-action(code) => { root.test-action(code); }
-                            change-action(code, selected, value) => { root.change-action(code, selected, value); }
-                            change-value(code, value) => { root.change-action-value(code, value); }
+                    Rectangle {
+                        height: 168px; border-radius: 14px; background: #ffffff0b; border-color: #ffffff18; border-width: 1px;
+                        VerticalBox {
+                            padding: 18px; spacing: 12px;
+                            HorizontalBox {
+                                padding: 0px; height: 32px;
+                                Text { text: "ACTION LAYERS"; color: #65a8ff; font-size: 13px; font-weight: 700; }
+                                Text { text: "Switch modes with"; color: #aeb8c7; vertical-alignment: center; }
+                                switch-picker := ComboBox { model: ["Disabled", "FIND", "TIME", "CNCT"]; current-index: root.mode-switch-index; selected(value) => { root.change-mode-switch(value); } }
+                            }
+                            HorizontalBox {
+                                padding: 0px; height: 32px;
+                                Text { text: "Editing layer"; color: #aeb8c7; vertical-alignment: center; }
+                                layer-picker := ComboBox { model: ["Normal", "Alternate"]; current-index: root.editing-layer; selected(value) => { root.change-editing-layer(self.current-index); } }
+                                Text { text: "Dashboard watch: " + root.active-layer; color: #f4f7fb; vertical-alignment: center; }
+                                Button { text: "Reset to Normal"; clicked => { root.reset-modes(); } }
+                            }
+                            Text { height: 32px; text: "The switch replaces that gesture in both layers. Modes are per trusted watch and reset on app restart. AUTO always uses Normal; watch syncing is unchanged."; color: #8792a3; font-size: 11px; wrap: word-wrap; }
                         }
                     }
                     HorizontalBox {
+                        padding: 0px;
                         spacing: 14px;
-                        for row in root.second-action-rows : ActionCard {
+                        for row in root.first-action-rows : ActionCard {
+                            // Window minus sidebar (236), page padding (56) and column gap (14).
+                            width: (root.width - 306px) / 2;
                             action-row: row;
                             action-options: root.action-options;
                             horizontal-stretch: 1;
                             test-action(code) => { root.test-action(code); }
                             change-action(code, selected, value) => { root.change-action(code, selected, value); }
                             change-value(code, value) => { root.change-action-value(code, value); }
+                            edit-keyboard(code) => { root.edit-keyboard(code); }
+                        }
+                    }
+                    HorizontalBox {
+                        padding: 0px;
+                        spacing: 14px;
+                        for row in root.second-action-rows : ActionCard {
+                            width: (root.width - 306px) / 2;
+                            action-row: row;
+                            action-options: root.action-options;
+                            horizontal-stretch: 1;
+                            test-action(code) => { root.test-action(code); }
+                            change-action(code, selected, value) => { root.change-action(code, selected, value); }
+                            change-value(code, value) => { root.change-action-value(code, value); }
+                            edit-keyboard(code) => { root.edit-keyboard(code); }
                         }
                     }
                 }
@@ -671,6 +782,49 @@ export component MainWindow inherits Window {
                         AboutSlint { }
                     }
                     Text { text: "Source: github.com/WerrySs/watch-actions-gshock-casio · MIT License"; color: #8792a3; font-size: 11px; }
+                }
+            }
+        }
+    }
+    // Replaces the content while editing: background controls cannot receive keyboard focus.
+    if root.keyboard-event != "" : Rectangle {
+        background: #141b27;
+        Rectangle {
+            width: 800px; height: 660px;
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            background: #ffffff08; border-radius: 18px; border-color: #ffffff20; border-width: 1px;
+            VerticalBox {
+                padding: 26px; spacing: 12px;
+                PageHeading { height: 70px; eyebrow: "KEYBOARD ACTION · " + root.keyboard-event; title: "Build your shortcut"; detail: "Choose a key, add modifiers, then set the number of presses."; }
+                HorizontalBox {
+                    height: 38px; padding: 0px; spacing: 10px;
+                    Text { horizontal-stretch: 1; text: (root.keyboard-control ? "Ctrl + " : "") + (root.keyboard-alt ? "Alt + " : "") + (root.keyboard-shift ? "Shift + " : "") + (root.keyboard-meta ? "Win + " : "") + root.keyboard-label + " ×" + root.keyboard-repetitions; color: #65a8ff; font-size: 23px; font-weight: 700; vertical-alignment: center; }
+                    Text { text: "Repeat"; color: #aeb8c7; vertical-alignment: center; }
+                    SpinBox { width: 100px; value <=> root.keyboard-repetitions; minimum: 1; maximum: 10; }
+                }
+                VerticalBox {
+                    padding: 0px; spacing: 6px; height: 258px;
+                    KeyboardRow { keys: root.keyboard-row-0; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
+                    KeyboardRow { keys: root.keyboard-row-1; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
+                    KeyboardRow { keys: root.keyboard-row-2; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
+                    KeyboardRow { keys: root.keyboard-row-3; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
+                    KeyboardRow { keys: root.keyboard-row-4; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
+                    KeyboardRow { keys: root.keyboard-row-5; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
+                }
+                HorizontalBox {
+                    height: 30px; padding: 0px;
+                    CheckBox { text: "Ctrl"; checked <=> root.keyboard-control; }
+                    CheckBox { text: "Alt"; checked <=> root.keyboard-alt; }
+                    CheckBox { text: "Shift"; checked <=> root.keyboard-shift; }
+                    CheckBox { text: "Windows"; checked <=> root.keyboard-meta; }
+                }
+                Text { height: 32px; text: "US reference positions; your keyboard layout determines characters. Fn and secure system shortcuts are not supported. No keys are recorded."; color: #aeb8c7; font-size: 12px; wrap: word-wrap; }
+                Text { height: 32px; text: "Keys target the focused app. Test waits 3 seconds: choose a safe window and release modifiers. Elevated apps and secure desktops remain protected."; color: #aeb8c7; font-size: 12px; wrap: word-wrap; }
+                Rectangle { vertical-stretch: 1; background: transparent; }
+                HorizontalBox {
+                    height: 36px; padding: 0px; alignment: end;
+                    Button { text: "Cancel"; clicked => { root.keyboard-event = ""; } }
+                    Button { text: "Save shortcut"; primary: true; clicked => { root.save-keyboard(); } }
                 }
             }
         }

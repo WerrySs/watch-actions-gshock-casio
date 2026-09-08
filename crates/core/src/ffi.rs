@@ -72,6 +72,12 @@ pub extern "C" fn wb_core_version() -> *const c_char {
 }
 
 #[unsafe(no_mangle)]
+/// Returns the shared physical-key catalog. Release with `wb_string_free`.
+pub extern "C" fn wb_keyboard_catalog_json() -> *mut c_char {
+    into_c_string(serde_json::to_string(crate::keyboard::KEYS).unwrap_or_else(|_| "[]".to_owned()))
+}
+
+#[unsafe(no_mangle)]
 /// Releases a string allocated by this library.
 ///
 /// # Safety

@@ -249,7 +249,7 @@ struct WatchSettings: Codable, Equatable, Hashable {
 // MARK: - Mac actions
 
 enum ActionKind: String, Codable, CaseIterable, Identifiable {
-    case none, sound, say, shortcut, openApp, url, lockScreen, sleepDisplay, muteToggle, playPause
+    case none, sound, say, shortcut, openApp, url, lockScreen, sleepDisplay, muteToggle, playPause, keyboard
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -263,6 +263,7 @@ enum ActionKind: String, Codable, CaseIterable, Identifiable {
         case .sleepDisplay: "Turn off the display"
         case .muteToggle: "Toggle mute"
         case .playPause: "Play or pause media"
+        case .keyboard: "Keyboard shortcut"
         }
     }
     var systemImage: String {
@@ -277,6 +278,7 @@ enum ActionKind: String, Codable, CaseIterable, Identifiable {
         case .sleepDisplay: "display"
         case .muteToggle: "speaker.slash.fill"
         case .playPause: "playpause.fill"
+        case .keyboard: "keyboard"
         }
     }
     var needsValue: Bool { [.say, .shortcut, .openApp, .url].contains(self) }
@@ -294,6 +296,7 @@ enum ActionKind: String, Codable, CaseIterable, Identifiable {
 struct WatchAction: Codable, Equatable, Hashable {
     var kind: ActionKind = .none
     var value: String = ""
+    var keyboard: KeyboardShortcut?
     static let none = WatchAction()
     var summary: String {
         switch kind {
@@ -302,6 +305,7 @@ struct WatchAction: Codable, Equatable, Hashable {
         case .shortcut: "Shortcut “\(value)”"
         case .openApp: "Open \(value)"
         case .url: "Open \(value)"
+        case .keyboard: keyboard?.summary ?? "Configure keyboard shortcut"
         default: kind.label
         }
     }
@@ -316,8 +320,24 @@ struct ActionsConfig: Codable, Equatable {
     ]
     var syncTimeOn: Set<WatchButtonEvent> = [.rightShort, .auto]
     var timeOffsetSeconds: Int = 0
+    var alternateActions: [WatchButtonEvent: WatchAction] = [:]
+    var switchEvent: WatchButtonEvent?
 
-    func action(for event: WatchButtonEvent) -> WatchAction { event == .unknown ? .none : actions[event] ?? .none }
+    init() {}
+    private enum CodingKeys: String, CodingKey { case actions, syncTimeOn, timeOffsetSeconds, alternateActions, switchEvent }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        actions = try c.decodeIfPresent([WatchButtonEvent: WatchAction].self, forKey: .actions) ?? actions
+        syncTimeOn = try c.decodeIfPresent(Set<WatchButtonEvent>.self, forKey: .syncTimeOn) ?? syncTimeOn
+        timeOffsetSeconds = try c.decodeIfPresent(Int.self, forKey: .timeOffsetSeconds) ?? 0
+        alternateActions = try c.decodeIfPresent([WatchButtonEvent: WatchAction].self, forKey: .alternateActions) ?? [:]
+        switchEvent = try c.decodeIfPresent(WatchButtonEvent.self, forKey: .switchEvent)
+        if switchEvent == .auto || switchEvent == .unknown { switchEvent = nil }
+    }
+    func action(for event: WatchButtonEvent, layer: ActionLayer = .normal) -> WatchAction {
+        guard event != .unknown else { return .none }
+        return (layer == .alternate && event != .auto ? alternateActions : actions)[event] ?? .none
+    }
 }
 
 // MARK: - Pending changes and history

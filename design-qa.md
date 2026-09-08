@@ -6,7 +6,7 @@ The committed images in `docs/screenshots/` are **offscreen full-window previews
 
 The intended layout retains the reference's prominent watch image, cached status and two-column action grid. A neutral shared watch PNG replaces manufacturer imagery; both Dashboard and button guide use it. Action cards reserve common header/control/value/help regions.
 
-The accepted images were generated in [CI run 34106828540](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34106828540), from commit `44d413b`, and inspected before inclusion. Default previews are 1240 × 800; the full Actions page uses 1240 × 1400. The same run includes 1080 × 700 minimum-size views for review.
+The current Dashboard, Actions and keyboard images were generated in [CI run 34200458420](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34200458420), from commit `496794e`, and inspected before inclusion. Default previews are 1240 × 800; the full Actions page uses 1240 × 1680. The same run includes 1080 × 700 minimum-size views and minimum-width full-page layer cards. My Watches remains the inspected [CI run 34106828540](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34106828540) fixture from `44d413b`; its view has not changed.
 
 1. **Dashboard:** the default-size view fits saved readings and four gesture rows alongside the watch and sidebar. Identity controls are consolidated. At minimum size the content scrolls and long action labels truncate; interactive keyboard/tooltips still need checking.
 2. **Actions:** the full-page view shows four equal-height cards with aligned headers/selectors and the A/B/C/D guide. The default/minimum window scrolls inside the content, leaving navigation in place.
@@ -18,9 +18,21 @@ The Dashboard now uses the watch name as the watch selector, with model/photo/fa
 
 `--snapshot <directory> --full-window --only watch` renders the real `ContentView` including navigation. Use `--full-page --only actions` for the taller Actions view. CI produces these and minimum-size renders as a separate review artifact; inspect them before replacing README images. The fixture preserves the requested size even on a smaller runner desktop. macOS 26's offscreen glass compositor produced blank sidebar/toolbar regions locally, so those outputs were rejected. Live Computer Use inspection was unavailable because of a client/server version mismatch; it requires a client relaunch. No interactive audit pass is claimed.
 
+## Action-layer update — September 8, 2026
+
+The macOS target/protection banner now participates in the detail column's layout below the toolbar, leaving page headings unobscured. The Dashboard halo reaches full transparency inside the image bounds instead of using an oversized blurred texture. The Actions editor adds distinct active/edited layers and keeps common card heights; its visual keyboard has six key rows, explicit modifier selection, a repeat count and a safe-test notice.
+
+Local sample-data renders were inspected for the keyboard, layer cards, Dashboard and default/minimum-size settings banner. The banner/content gap and halo fade are visible; macOS 26 still leaves offscreen sidebar/toolbar glass blank, so those full-window local images are not publication assets. CI renders keyboard, default/minimum settings, and full-page action-layer fixtures for review. Full-page fixtures are now 1240 × 1680 (or 1080 wide with `--minimum-size`) so the new controls do not truncate the time-sync section. Use `--action-layers --only actions` to select the new sample configuration and `--only keyboard` for the standalone keyboard.
+
 ## Windows
 
 Slint defines a minimum 1080 × 700 window, two real cards per action row, equal card heights and common header/selector regions. Native CI can validate compilation, tests and startup. It does **not** establish that Mica, scaling or every interaction works on an end-user Windows desktop.
+
+The action-layer review adds a sample-data Slint renderer with no state loading, BLE or action callbacks. Local client-area renders caught clipped key labels/footer and unequal card widths/tall Test buttons; these were corrected with explicit bounds, padding and equal column widths. Oversized windows produced blank GPU readbacks, not evidence of a blank end-user app, so fixtures use default/minimum windows and scroll offsets instead. CI also rejects empty captures. On Windows the workflow produces PNG previews from BMP readbacks using the OS encoder, without adding a screenshot library or capturing the desktop/native frame. Review artifacts cover the Actions header, each card row and the keyboard at both widths; they are not Mica or input-delivery certification.
+
+The first hosted capture attempt (CI 34202387610) failed after native tests and packaging, without renderer diagnostics from the GUI process. The workflow now captures sample-process stderr and builds an optional `software-preview` fixture tool, selecting Slint's CPU renderer for reproducible layout inspection without a hosted GPU requirement. Production archives are built/uploaded before that feature is enabled and keep their renderer unchanged. Do not use CPU captures to claim that the failed GPU path, interactive scaling or end-user GPU behavior was validated.
+
+The native CPU fixtures in CI 34203617517 revealed a real system-theme mismatch: the app's custom surfaces are dark, but system-light widget labels could be black on dark backgrounds. MainWindow now selects the dark widget palette explicitly. CPU-only previews also show a thin diagonal gradient rasterization seam; local production-renderer captures do not show it. This known fixture artifact is not retouched, and CPU previews are not used as Windows promotional screenshots or GPU acceptance evidence.
 
 ## Interactive checks still required
 

@@ -6,6 +6,8 @@ The 2026-09-07 local review exercised shared Rust tests, Rust linting (including
 
 Native Windows execution is checked on the Windows CI runner, not inferred from cross-compilation. Consult the [CI history](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) for the exact commit and download artifacts. The [Release workflow](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/release.yml) independently gates downloads on tests, full-history secret scanning, dependency policy, packaging and checksums.
 
+The September 8 action-layer/keyboard review adds legacy action decoding and schema migration, per-watch mode/trust isolation, switch reversibility, AUTO routing, invalid key/repeat rejection and balanced native modifier-release plans (including partial Windows insertion cleanup). Local checks passed 27 Rust-core tests and 20 Swift tests plus Windows MSVC-target linting. Native Windows tests run in CI. None of these tests sends input into a user's desktop or substitutes for physical BLE/permission/focus acceptance; see [Action layers](ACTION_LAYERS.md).
+
 macOS screenshots are sample-data offscreen renders. The [design validation scope](../design-qa.md) explicitly separates those from interactive testing.
 
 ## Dependency audit
@@ -26,6 +28,7 @@ Minimum physical tests on macOS and Windows remain pending in [the acceptance-tr
 - Complete the exact-model/OS [hardware matrix](COMPATIBILITY.md), including two-watch isolation, reconnects, short TIME/FIND sessions and interrupted writes.
 - Test interactive Windows layout/Mica, keyboard navigation, scaling and accessibility on a real desktop; test Mac title-bar/sidebar and permission flows.
 - Validate native computer actions manually. Screen locking is reported as a request, not proof the screen is locked. On newer Macs it requires explicit Accessibility permission for the OS shortcut.
+- Validate Normal/Alternate switching with two trusted watches and restart/trust resets. Test → ×2 and modifier chords in a controlled target, no-permission/elevated-target rejection, held modifiers, focus changes between repeats, and non-US keyboard layouts. Never use destructive shortcuts as test fixtures.
 - Resolve or document an accepted mitigation for the indirect unmaintained dependency notices.
 - Obtain the owner's approval for stable distribution after the preceding gates are met. Release publication never changes repository visibility automatically.
 
