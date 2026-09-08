@@ -234,7 +234,7 @@ component ActionCard inherits Rectangle {
             height: 60px;
             background: transparent;
             if root.action-row.is-switch : Text {
-                text: "The saved computer action is paused.\nUse the same gesture to switch back."; wrap: word-wrap; color: #aeb8c7; font-size: 12px;
+                text: "The saved computer action is paused. Repeat this gesture to cycle through your modes and return to Normal."; wrap: word-wrap; color: #aeb8c7; font-size: 12px;
             }
             if root.action-row.is-keyboard && !root.action-row.is-switch : VerticalBox {
                 padding: 0px; spacing: 5px;
@@ -840,9 +840,9 @@ export component MainWindow inherits Window {
                     VerticalBox {
                         padding: 4px; spacing: 8px;
                         for step in root.recorded-keys : Rectangle {
-                            height: 64px; background: #ffffff0c; border-radius: 10px; border-width: 1px; border-color: #ffffff14;
+                            height: root.show-manual-key ? 52px : 64px; background: #ffffff0c; border-radius: 10px; border-width: 1px; border-color: #ffffff14;
                             HorizontalBox {
-                                padding: 14px; spacing: 20px;
+                                padding: root.show-manual-key ? 10px : 14px; spacing: 20px;
                                 Text { width: 142px; text: step.detail; color: #aeb8c7; font-size: 12px; vertical-alignment: center; }
                                 Text { text: step.title; color: #f4f7fb; font-size: 21px; font-weight: 700; vertical-alignment: center; }
                             }

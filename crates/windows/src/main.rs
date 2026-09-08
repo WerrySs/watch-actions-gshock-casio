@@ -41,9 +41,9 @@ fn main() -> anyhow::Result<()> {
             env_flag("--keyboard"),
             env_flag("--minimum-size"),
             if env_flag("--second-row") {
-                880.0
+                1040.0
             } else if env_flag("--cards") {
-                370.0
+                540.0
             } else {
                 0.0
             },

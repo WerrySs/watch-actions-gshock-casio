@@ -69,11 +69,11 @@ On macOS, click the watch name to choose the Dashboard watch or follow the most 
 ## Explore the interface
 
 <details>
-<summary>Actions — physical button guide and aligned gesture cards</summary>
+<summary>Actions — named modes and aligned gesture cards</summary>
 
 Create and reorder named modes, recognize the active mode by its name and color, and configure each supported gesture. The button guide explains A, B, C and D. The development preview reserves FIND for mode cycling. Test buttons are manual actions; physical watches require explicit trust.
 
-![Full-page macOS Actions preview with sidebar, four aligned cards and button guide](docs/screenshots/actions.png)
+![Full-page macOS Actions preview with sidebar, named mode cards and four aligned gestures](docs/screenshots/actions.png)
 
 </details>
 

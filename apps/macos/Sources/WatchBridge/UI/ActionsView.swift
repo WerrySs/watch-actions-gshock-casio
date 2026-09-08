@@ -122,7 +122,7 @@ struct ActionEditor: View {
                     }
                 }
                 if isSwitch {
-                    Text("The saved computer action is paused. Use the same gesture to switch back.")
+                    Text("The saved computer action is paused. Repeat this gesture to cycle through your modes and return to Normal.")
                         .font(.callout).foregroundStyle(Theme.text2).frame(minHeight: 48)
                 } else if action.kind == .keyboard {
                     Button { showingKeyboard = true } label: {
