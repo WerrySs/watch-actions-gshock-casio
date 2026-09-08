@@ -68,4 +68,8 @@ Use a feature branch or fork and open a pull request against `main`. The **Requi
 
 Before adding a device to [Compatibility](docs/COMPATIBILITY.md), establish that its buttons initiate computer-observable Bluetooth events. Sharing a brand, case design or service UUID is not sufficient. Add primary [references](docs/REFERENCES.md), sanitized regression fixtures and separate macOS/Windows evidence. See the [roadmap](docs/ROADMAP.md) for bounded feature ideas.
 
+## Releases
+
+Maintainers publish a named, downloadable release after each completed change batch passes review and native/security checks. Release notes, macOS/Windows packages, checksums and README download links are part of delivery; temporary CI artifacts alone are not. Documentation-only follow-ups may complete the same release without rebuilding identical apps. See [Releasing](docs/RELEASING.md). Contributors do not need signing credentials or release permissions, and experimental betas do not certify physical-device support.
+
 By contributing, you agree that your contribution is licensed under the repository's MIT License and that you will follow the Code of Conduct.

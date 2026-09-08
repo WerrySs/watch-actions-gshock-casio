@@ -2,6 +2,18 @@
 
 Repository: `WerrySs/watch-actions-gshock-casio`. Repository visibility and release publication are separate decisions. The owner must explicitly authorize opening the source after the [public-beta checklist](PUBLIC_BETA_CHECKLIST.md); no workflow changes visibility automatically.
 
+## Completion policy
+
+The maintainer's standing instruction is to publish a downloadable release for every completed batch of requested changes. A merged PR, a tag without apps, or a successful CI artifact is not the release deliverable. Use the existing gated workflow; this policy does not automatically publish every intermediate commit or untrusted contributor PR.
+
+1. Update the changelog and beta notes for the completed changes. Use a feature branch, a PR and green **Required checks**; wait for green CI on the merged source too.
+2. Dispatch Release from that `main` commit and keep `main` unchanged until publication finishes. Publish an experimental beta unless the separate stable-release prerequisites are met.
+3. Confirm the tag targets the built commit, the release is no longer a draft, and its title, notes and prerelease status describe the build accurately.
+4. Download the macOS DMG/ZIP, Windows ZIP and both checksum files from the public release links. Verify SHA-256 and archive integrity; retain native-runner test/smoke evidence. A download or startup check is not physical-watch acceptance.
+5. Update the README's exact-version links, feature availability and release evidence through a green PR, then provide the release URL to the requester. These documentation-only follow-ups belong to the same delivery and do not recursively require another identical binary release. Further app changes do require new packages and a new release.
+
+If a build, permission or publishing gate fails, report it explicitly and fix the cause. Never substitute a temporary CI link while claiming publication, overwrite old assets, move an existing tag, or bypass signing/security gates. The September 8, 2026 standing authorization covers experimental releases of completed requested work; it does not authorize changing visibility or certifying a stable release.
+
 ## CI downloads
 
 Successful CI runs attach two review artifacts for 14 days:

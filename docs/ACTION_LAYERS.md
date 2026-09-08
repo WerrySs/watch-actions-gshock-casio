@@ -1,6 +1,6 @@
 # Action modes and recorded keyboard shortcuts
 
-Available in development builds after Beta 3. **The existing Beta 3 downloads do not contain these features.** Use a review archive from a successful CI run for the feature commit, or build that source. Review builds remain experimental and may be unsigned.
+Available in [WatchBridge 0.1.0 Beta 4](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-4) for macOS and Windows. Earlier Beta 3 downloads do not contain these features. Beta 4 remains experimental and lacks publisher signing/notarization; back up local state before upgrading and read the limitations below.
 
 ## Create modes for different tasks
 
