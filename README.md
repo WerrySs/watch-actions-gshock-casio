@@ -49,15 +49,16 @@ These are short connection sessions, not continuous keyboard-like button events.
 | Saved watches, favorite and offline snapshots | Yes | Yes |
 | Explicit physical-watch association and action trust | Yes | Yes |
 | Connection history and action configuration | Yes | Yes |
-| Normal / Alternate action layers | Development builds | Development builds |
-| Visual keyboard shortcuts and 1–10 repeated presses | Development builds | Development builds |
+| Named action modes, colors and a watch-button cycle | Development builds | Development builds |
+| Local shortcut recorder, modifier-only taps and sequences | Development builds | Development builds |
+| Optional floating active-mode indicator | Development builds | Not applicable |
 | Local, metadata-free user watch photos | Yes | Not yet |
 | Reminder, alarm and settings editors | Yes | Cached read-only views; editor parity pending |
 | Shortcuts integration | macOS Shortcuts | Not yet |
 
 Slint is not WinUI: both clients are compiled desktop apps, but their controls and feature sets are not identical. Their local JSON formats are also different; copying state files between platforms is not supported. See [Architecture](docs/ARCHITECTURE.md).
 
-**New in development:** assign a gesture to switch between Normal and Alternate actions, then build shortcuts with a visual keyboard, modifiers and repetitions such as **→ ×2**. Each trusted watch keeps its own temporary mode. See [Action layers and keyboard shortcuts](docs/ACTION_LAYERS.md) for setup and permission/safety limits. These additions are **not in the Beta 3 download above**; successful CI runs provide updated review apps.
+**New in development:** record shortcuts such as **⌘ → ⌘** or **Right twice**, then create named, colored modes for Presentation, Music and other tasks. A reserved watch gesture cycles through your modes; each trusted physical watch keeps its own session mode. macOS also has an optional black, click-through mode indicator below the menu bar, independent of notch geometry. See [Action modes and recording](docs/ACTION_LAYERS.md) for setup, limits and safety. These additions are **not in the Beta 3 download above**; successful CI runs provide updated review apps.
 
 ### Language and Dashboard controls
 
@@ -70,18 +71,18 @@ On macOS, click the watch name to choose the Dashboard watch or follow the most 
 <details>
 <summary>Actions — physical button guide and aligned gesture cards</summary>
 
-See where A, B, C and D are, configure each supported gesture in Normal or Alternate, and choose when to send the time. The development preview below reserves FIND for mode switching. Test buttons are manual actions; physical watches require explicit trust.
+Create and reorder named modes, recognize the active mode by its name and color, and configure each supported gesture. The button guide explains A, B, C and D. The development preview reserves FIND for mode cycling. Test buttons are manual actions; physical watches require explicit trust.
 
 ![Full-page macOS Actions preview with sidebar, four aligned cards and button guide](docs/screenshots/actions.png)
 
 </details>
 
 <details>
-<summary>Keyboard actions — visual keys, modifiers and repeated presses</summary>
+<summary>Keyboard actions — Record, double Command and key sequences</summary>
 
-Development builds include a local visual key picker. Choose a key, optionally add modifiers and repeat the chord 1–10 times. No typing is recorded. Read the [setup and safe-testing guide](docs/ACTION_LAYERS.md) before use.
+Click **Record**, press and release your keys, then **Stop** and review the numbered steps before saving. Modifier-only taps, presets and manual additions are supported. Recording is limited to the focused editor; there is no global keyboard hook. Read the [setup and safe-testing guide](docs/ACTION_LAYERS.md) before use.
 
-![macOS visual keyboard editor with Command plus Right Arrow repeated twice](docs/screenshots/keyboard.png)
+![macOS keyboard recorder preview](docs/screenshots/keyboard.png)
 
 </details>
 

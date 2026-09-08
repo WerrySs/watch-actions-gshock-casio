@@ -311,7 +311,15 @@ struct WatchAction: Codable, Equatable, Hashable {
     }
 }
 
+struct ActionProfile: Codable, Equatable, Identifiable {
+    var id: Int
+    var name: String
+    var color: String = "purple"
+    var actions: [WatchButtonEvent: WatchAction] = [:]
+}
+
 struct ActionsConfig: Codable, Equatable {
+    static let colors = ["blue", "purple", "green", "orange", "pink", "cyan", "yellow", "red"]
     var actions: [WatchButtonEvent: WatchAction] = [
         .find: WatchAction(kind: .sound),
         .rightShort: .none,
@@ -320,23 +328,59 @@ struct ActionsConfig: Codable, Equatable {
     ]
     var syncTimeOn: Set<WatchButtonEvent> = [.rightShort, .auto]
     var timeOffsetSeconds: Int = 0
-    var alternateActions: [WatchButtonEvent: WatchAction] = [:]
+    var profiles: [ActionProfile] = [ActionProfile(id: 1, name: "Alternate")]
     var switchEvent: WatchButtonEvent?
+    var showModeIndicator = true
 
     init() {}
-    private enum CodingKeys: String, CodingKey { case actions, syncTimeOn, timeOffsetSeconds, alternateActions, switchEvent }
+    private enum CodingKeys: String, CodingKey { case actions, syncTimeOn, timeOffsetSeconds, alternateActions, switchEvent, profiles, showModeIndicator, schemaVersion }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1 <= 2 else {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: c, debugDescription: "Configuration requires a newer WatchBridge")
+        }
         actions = try c.decodeIfPresent([WatchButtonEvent: WatchAction].self, forKey: .actions) ?? actions
         syncTimeOn = try c.decodeIfPresent(Set<WatchButtonEvent>.self, forKey: .syncTimeOn) ?? syncTimeOn
         timeOffsetSeconds = try c.decodeIfPresent(Int.self, forKey: .timeOffsetSeconds) ?? 0
-        alternateActions = try c.decodeIfPresent([WatchButtonEvent: WatchAction].self, forKey: .alternateActions) ?? [:]
+        if let saved = try c.decodeIfPresent([ActionProfile].self, forKey: .profiles) { profiles = saved }
+        else { profiles[0].actions = try c.decodeIfPresent([WatchButtonEvent: WatchAction].self, forKey: .alternateActions) ?? [:] }
+        var ids = Set<Int>()
+        profiles = profiles.prefix(100).filter { $0.id > 0 && $0.id <= Int(Int32.max) && ids.insert($0.id).inserted }.map { profile in
+            var p = profile; p.name = RustCore.sanitize(p.name, limit: 40)
+            if p.name.isEmpty { p.name = "Untitled mode" }
+            if !Self.colors.contains(p.color) { p.color = "purple" }
+            return p
+        }
+        showModeIndicator = try c.decodeIfPresent(Bool.self, forKey: .showModeIndicator) ?? true
         switchEvent = try c.decodeIfPresent(WatchButtonEvent.self, forKey: .switchEvent)
         if switchEvent == .auto || switchEvent == .unknown { switchEvent = nil }
     }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(2, forKey: .schemaVersion)
+        try c.encode(actions, forKey: .actions); try c.encode(profiles, forKey: .profiles)
+        try c.encode(syncTimeOn, forKey: .syncTimeOn); try c.encode(timeOffsetSeconds, forKey: .timeOffsetSeconds)
+        try c.encodeIfPresent(switchEvent, forKey: .switchEvent); try c.encode(showModeIndicator, forKey: .showModeIndicator)
+    }
     func action(for event: WatchButtonEvent, layer: ActionLayer = .normal) -> WatchAction {
         guard event != .unknown else { return .none }
-        return (layer == .alternate && event != .auto ? alternateActions : actions)[event] ?? .none
+        if case .profile(let id) = layer, event != .auto { return profiles.first { $0.id == id }?.actions[event] ?? .none }
+        return actions[event] ?? .none
+    }
+    var layers: [ActionLayer] { [.normal] + profiles.map { .profile($0.id) } }
+    func name(for layer: ActionLayer) -> String { profiles.first { $0.id == layer.id }?.name ?? "Normal" }
+    func color(for layer: ActionLayer) -> String { profiles.first { $0.id == layer.id }?.color ?? "blue" }
+    func nextLayer(after current: ActionLayer) -> ActionLayer {
+        guard let index = layers.firstIndex(of: current) else { return .normal }
+        return layers[(index + 1) % layers.count]
+    }
+    mutating func addProfile(named name: String) -> ActionLayer? {
+        let name = RustCore.sanitize(name, limit: 40)
+        guard profiles.count < 100, !name.isEmpty else { return nil }
+        let id = (profiles.map(\.id).max() ?? 0) + 1
+        guard id <= Int(Int32.max) else { return nil }
+        profiles.append(ActionProfile(id: id, name: name, color: Self.colors[(profiles.count + 1) % Self.colors.count]))
+        return .profile(id)
     }
 }
 

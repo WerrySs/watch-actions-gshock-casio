@@ -148,7 +148,6 @@ impl SharedState {
         self.writable.load(Ordering::Relaxed)
     }
 
-    #[cfg(target_os = "windows")]
     pub fn begin_action(&self) -> bool {
         self.can_mutate()
             && self
@@ -157,7 +156,6 @@ impl SharedState {
                 .is_ok()
     }
 
-    #[cfg(target_os = "windows")]
     pub fn finish_action(&self, summary: String) {
         let mut runtime = self.runtime.write();
         runtime.last_action_result = Some(summary);
@@ -170,6 +168,15 @@ impl SharedState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recording_reserves_the_same_gate_as_watch_and_manual_actions() {
+        let state = SharedState::demo();
+        assert!(state.begin_action());
+        assert!(!state.begin_action());
+        state.finish_action("Recording ended without input".into());
+        assert!(state.begin_action());
+        state.finish_action("Test ended".into());
+    }
     #[test]
     fn failed_loads_are_not_overwritten() {
         let folder = tempfile::tempdir().unwrap();

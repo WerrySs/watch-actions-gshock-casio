@@ -466,7 +466,7 @@ async fn run_session_inner(
                 });
             }
             ActionResolution::Switched(layer) => {
-                let summary = format!("{}: switched to {} mode", event.code(), layer.title());
+                let summary = format!("{}: switched action mode {}", event.code(), layer.id());
                 shared.trace(&summary);
                 shared.finish_action(summary);
             }

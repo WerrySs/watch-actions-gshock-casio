@@ -34,7 +34,15 @@ The first hosted capture attempt (CI 34202387610) failed after native tests and 
 
 The native CPU fixtures in CI 34203617517 revealed a real system-theme mismatch: the app's custom surfaces are dark, but system-light widget labels could be black on dark backgrounds. MainWindow now selects the dark widget palette explicitly. CPU-only previews also show a thin diagonal gradient rasterization seam; local production-renderer captures do not show it. This known fixture artifact is not retouched, and CPU previews are not used as Windows promotional screenshots or GPU acceptance evidence.
 
-## Interactive checks still required
+## Recorder and named modes — September 8, 2026
+
+The keyboard grid is replaced by an explicit Record/Stop flow and numbered key cards, with double-modifier/right-arrow presets and a collapsible manual fallback. The macOS editor keeps its Save/Cancel footer outside its scrolling content. The Windows manual layout shortens the sequence viewport so the footer stays inside the 800 × 656 panel at the minimum window size. No synthetic input was sent during layout review.
+
+Modes have numbered color-coded cards, separate active/editing text, name/color controls, reorder arrows and a deletion confirmation. The macOS button guide is collapsible so the mode controls and actions get priority. The optional Mac indicator uses a black capsule below the usable screen's top edge; it is nonactivating/click-through rather than a notch overlay. A pure frame test covers positive and negative-origin screen coordinates. Its sample render is not a photograph of a real notch or a multi-display acceptance result.
+
+Local minimum-size recorder, expanded manual, mode-card and name/color renders were inspected. Mac offscreen glass still leaves blank sidebar regions locally, so full-window README screenshots must come from inspected native CI outputs. Windows local renders here ran its production renderer on macOS; native Windows CPU fixtures are a separate required CI review. Neither certifies actual Windows input, GPU/Mica, screen-reader navigation, or Mac Spaces/menu-bar rendering.
+
+### Interactive checks still required
 
 On physical macOS and Windows installations:
 

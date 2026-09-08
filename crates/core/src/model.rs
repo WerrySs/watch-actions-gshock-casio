@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 const MAXIMUM_WATCHES: usize = 100;
 const MAXIMUM_PENDING_CHANGES: usize = 32;
 const MAXIMUM_HISTORY_RECORDS: usize = 300;
@@ -487,15 +487,65 @@ impl Default for WatchAction {
     }
 }
 
+pub const MODE_COLORS: &[(&str, &str)] = &[
+    ("blue", "#4b9dff"),
+    ("purple", "#bb8aff"),
+    ("green", "#57d897"),
+    ("orange", "#ffb45f"),
+    ("pink", "#ff83b8"),
+    ("cyan", "#53d5e8"),
+    ("yellow", "#e9d56b"),
+    ("red", "#ff8080"),
+];
+pub const MAX_ACTION_PROFILES: usize = 100;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActionProfile {
+    pub id: u32,
+    pub name: String,
+    pub color: String,
+    pub actions: BTreeMap<WatchButtonEvent, WatchAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(from = "ActionsConfigWire")]
 pub struct ActionsConfig {
     pub actions: BTreeMap<WatchButtonEvent, WatchAction>,
-    #[serde(default)]
-    pub alternate_actions: BTreeMap<WatchButtonEvent, WatchAction>,
-    #[serde(default)]
+    pub profiles: Vec<ActionProfile>,
     pub switch_event: Option<WatchButtonEvent>,
     pub sync_time_on: BTreeSet<WatchButtonEvent>,
     pub time_offset_seconds: i32,
+}
+
+#[derive(Deserialize)]
+struct ActionsConfigWire {
+    actions: BTreeMap<WatchButtonEvent, WatchAction>,
+    #[serde(default)]
+    alternate_actions: BTreeMap<WatchButtonEvent, WatchAction>,
+    #[serde(default)]
+    profiles: Option<Vec<ActionProfile>>,
+    #[serde(default)]
+    switch_event: Option<WatchButtonEvent>,
+    sync_time_on: BTreeSet<WatchButtonEvent>,
+    time_offset_seconds: i32,
+}
+impl From<ActionsConfigWire> for ActionsConfig {
+    fn from(wire: ActionsConfigWire) -> Self {
+        Self {
+            actions: wire.actions,
+            profiles: wire.profiles.unwrap_or_else(|| {
+                vec![ActionProfile {
+                    id: 1,
+                    name: "Alternate".into(),
+                    color: "purple".into(),
+                    actions: wire.alternate_actions,
+                }]
+            }),
+            switch_event: wire.switch_event,
+            sync_time_on: wire.sync_time_on,
+            time_offset_seconds: wire.time_offset_seconds,
+        }
+    }
 }
 
 impl Default for ActionsConfig {
@@ -515,7 +565,12 @@ impl Default for ActionsConfig {
 
         Self {
             actions,
-            alternate_actions: BTreeMap::new(),
+            profiles: vec![ActionProfile {
+                id: 1,
+                name: "Alternate".into(),
+                color: "purple".into(),
+                actions: BTreeMap::new(),
+            }],
             switch_event: None,
             sync_time_on,
             time_offset_seconds: 0,
@@ -531,21 +586,81 @@ impl ActionsConfig {
         if event == WatchButtonEvent::Unknown {
             return WatchAction::default();
         }
-        let actions = if layer == ActionLayer::Alternate && event != WatchButtonEvent::Automatic {
-            &self.alternate_actions
-        } else {
-            &self.actions
+        let actions = match layer {
+            ActionLayer::Profile(id) if event != WatchButtonEvent::Automatic => {
+                let Some(profile) = self.profiles.iter().find(|p| p.id == id) else {
+                    return WatchAction::default();
+                };
+                &profile.actions
+            }
+            _ => &self.actions,
         };
         actions.get(&event).cloned().unwrap_or_default()
     }
     pub fn actions_mut(
         &mut self,
         layer: ActionLayer,
-    ) -> &mut BTreeMap<WatchButtonEvent, WatchAction> {
+    ) -> Option<&mut BTreeMap<WatchButtonEvent, WatchAction>> {
         match layer {
-            ActionLayer::Normal => &mut self.actions,
-            ActionLayer::Alternate => &mut self.alternate_actions,
+            ActionLayer::Normal => Some(&mut self.actions),
+            ActionLayer::Profile(id) => self
+                .profiles
+                .iter_mut()
+                .find(|p| p.id == id)
+                .map(|p| &mut p.actions),
         }
+    }
+    pub fn layers(&self) -> Vec<ActionLayer> {
+        std::iter::once(ActionLayer::Normal)
+            .chain(self.profiles.iter().map(|p| ActionLayer::Profile(p.id)))
+            .collect()
+    }
+    pub fn layer_name(&self, layer: ActionLayer) -> &str {
+        self.profiles
+            .iter()
+            .find(|p| p.id == layer.id())
+            .map_or("Normal", |p| &p.name)
+    }
+    pub fn layer_color(&self, layer: ActionLayer) -> &str {
+        self.profiles
+            .iter()
+            .find(|p| p.id == layer.id())
+            .map_or("blue", |p| &p.color)
+    }
+    pub fn next_layer(&self, current: ActionLayer) -> ActionLayer {
+        let layers = self.layers();
+        layers
+            .iter()
+            .position(|l| *l == current)
+            .map_or(ActionLayer::Normal, |index| {
+                layers[(index + 1) % layers.len()]
+            })
+    }
+    pub fn add_profile(&mut self, name: &str) -> Option<ActionLayer> {
+        let name = sanitize_single_line(name, 40);
+        if self.profiles.len() >= MAX_ACTION_PROFILES || name.is_empty() {
+            return None;
+        }
+        let id = self
+            .profiles
+            .iter()
+            .map(|p| p.id)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)?;
+        if id > i32::MAX as u32 {
+            return None;
+        }
+        let color = MODE_COLORS[(self.profiles.len() + 1) % MODE_COLORS.len()]
+            .0
+            .into();
+        self.profiles.push(ActionProfile {
+            id,
+            name,
+            color,
+            actions: BTreeMap::new(),
+        });
+        Some(ActionLayer::Profile(id))
     }
 }
 
@@ -786,10 +901,21 @@ impl AppData {
         ) {
             self.actions.switch_event = None;
         }
-        for actions in [
-            &mut self.actions.actions,
-            &mut self.actions.alternate_actions,
-        ] {
+        let mut profile_ids = BTreeSet::new();
+        self.actions.profiles.truncate(MAX_ACTION_PROFILES);
+        self.actions.profiles.retain_mut(|profile| {
+            profile.name = sanitize_single_line(&profile.name, 40);
+            if profile.name.is_empty() {
+                profile.name = "Untitled mode".into();
+            }
+            if !MODE_COLORS.iter().any(|(name, _)| *name == profile.color) {
+                profile.color = "purple".into();
+            }
+            profile.id > 0 && profile.id <= i32::MAX as u32 && profile_ids.insert(profile.id)
+        });
+        for actions in std::iter::once(&mut self.actions.actions)
+            .chain(self.actions.profiles.iter_mut().map(|p| &mut p.actions))
+        {
             actions.retain(|event, _| WatchButtonEvent::CONFIGURABLE.contains(event));
             for action in actions.values_mut() {
                 action.value = sanitize_single_line(&action.value, 240);
@@ -800,8 +926,7 @@ impl AppData {
                     && action
                         .keyboard
                         .as_ref()
-                        .and_then(KeyboardShortcut::definition)
-                        .is_none()
+                        .is_none_or(|keyboard| !keyboard.is_valid())
                 {
                     *action = WatchAction::default();
                 }

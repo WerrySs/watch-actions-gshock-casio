@@ -1,24 +1,7 @@
 import { AboutSlint, Button, CheckBox, ComboBox, HorizontalBox, LineEdit, Palette, ScrollView, SpinBox, VerticalBox } from "std-widgets.slint";
 
-export struct KeyCap { id: string, label: string }
-
-component KeyboardRow inherits HorizontalBox {
-    in property <[KeyCap]> keys;
-    in property <string> selected-key;
-    callback choose(string, string);
-    padding: 0px;
-    spacing: 5px;
-    height: 38px;
-    for key in root.keys : Button {
-        text: key.label;
-        checkable: true;
-        checked: key.id == root.selected-key;
-        min-width: 28px;
-        horizontal-stretch: 1;
-        clicked => { root.choose(key.id, key.label); }
-        accessible-label: "Select " + key.id + " key";
-    }
-}
+export struct RecordedKeyRow { title: string, detail: string }
+export struct ModeRow { id: int, name: string, color: color, active: bool, selected: bool, position: int }
 
 export struct ActionRow {
     code: string,
@@ -230,7 +213,7 @@ component ActionCard inherits Rectangle {
             }
         }
 
-        Text { text: root.action-row.is-switch ? "Reserved in both layers" : (root.action-row.code == "AUTO" ? "Computer action · Normal only" : "Computer action"); color: #8792a3; font-size: 12px; font-weight: 600; }
+        Text { text: root.action-row.is-switch ? "Reserved in all modes" : (root.action-row.code == "AUTO" ? "Computer action · Normal only" : "Computer action"); color: #8792a3; font-size: 12px; font-weight: 600; }
         Rectangle {
             height: 34px;
             background: transparent;
@@ -243,7 +226,7 @@ component ActionCard inherits Rectangle {
                 }
             }
             if root.action-row.is-switch : Text {
-                width: parent.width; text: "Switch Normal ↔ Alternate"; color: #65a8ff; font-size: 14px; font-weight: 600; vertical-alignment: center;
+                width: parent.width; text: "Cycle to the next mode"; color: #65a8ff; font-size: 14px; font-weight: 600; vertical-alignment: center;
             }
         }
 
@@ -390,19 +373,28 @@ export component MainWindow inherits Window {
     in property <string> active-layer: "Normal";
     in-out property <string> keyboard-event: "";
     in-out property <int> keyboard-layer;
-    in-out property <string> keyboard-key: "right";
-    in-out property <string> keyboard-label: "→";
+    in property <[ModeRow]> mode-rows;
+    in property <color> active-mode-color: #4b9dff;
+    in property <string> editing-mode-name: "Normal";
+    in-out property <bool> show-mode-editor: false;
+    in-out property <bool> confirm-delete-mode: false;
+    in-out property <int> mode-edit-id: -1;
+    in-out property <string> mode-edit-name;
+    in-out property <int> mode-edit-color: 1;
+    in property <[string]> mode-color-names: ["Blue", "Purple", "Green", "Orange", "Pink", "Cyan", "Yellow", "Red"];
+    in property <[color]> mode-colors: [#4b9dff, #bb8aff, #57d897, #ffb45f, #ff83b8, #53d5e8, #e9d56b, #ff8080];
+    in property <bool> keyboard-recording;
+    in property <bool> keyboard-valid: true;
+    in property <string> recording-message: "Click Record, press your shortcut, then click Stop.";
+    in property <[RecordedKeyRow]> recorded-keys;
+    in property <[string]> manual-key-labels;
+    in-out property <int> manual-key-index;
+    in-out property <bool> show-manual-key: false;
     in-out property <bool> keyboard-control;
     in-out property <bool> keyboard-alt;
     in-out property <bool> keyboard-shift;
     in-out property <bool> keyboard-meta;
     in-out property <int> keyboard-repetitions: 1;
-    in property <[KeyCap]> keyboard-row-0;
-    in property <[KeyCap]> keyboard-row-1;
-    in property <[KeyCap]> keyboard-row-2;
-    in property <[KeyCap]> keyboard-row-3;
-    in property <[KeyCap]> keyboard-row-4;
-    in property <[KeyCap]> keyboard-row-5;
     in property <[ActionRow]> action-rows;
     in property <[ActionRow]> first-action-rows;
     in property <[ActionRow]> second-action-rows;
@@ -438,8 +430,17 @@ export component MainWindow inherits Window {
     callback reset-modes;
     callback edit-keyboard(string);
     callback save-keyboard;
+    callback toggle-recording;
+    callback cancel-keyboard;
+    callback keyboard-preset(string);
+    callback undo-keyboard;
+    callback add-manual-key;
+    callback open-mode-editor(int);
+    callback save-mode;
+    callback delete-mode(int);
+    callback move-mode(int, int);
 
-    if root.keyboard-event == "" : HorizontalBox {
+    if root.keyboard-event == "" && !root.show-mode-editor && !root.confirm-delete-mode : HorizontalBox {
         width: parent.width;
         height: parent.height;
         padding: 0px;
@@ -685,23 +686,56 @@ export component MainWindow inherits Window {
                         }
                     }
                     Rectangle {
-                        height: 168px; border-radius: 14px; background: #ffffff0b; border-color: #ffffff18; border-width: 1px;
+                        height: 354px; border-radius: 14px; background: #ffffff0b; border-color: #ffffff18; border-width: 1px;
                         VerticalBox {
-                            padding: 18px; spacing: 12px;
+                            padding: 18px; spacing: 14px;
                             HorizontalBox {
-                                padding: 0px; height: 32px;
-                                Text { text: "ACTION LAYERS"; color: #65a8ff; font-size: 13px; font-weight: 700; }
-                                Text { text: "Switch modes with"; color: #aeb8c7; vertical-alignment: center; }
-                                switch-picker := ComboBox { model: ["Disabled", "FIND", "TIME", "CNCT"]; current-index: root.mode-switch-index; selected(value) => { root.change-mode-switch(value); } }
+                                height: 32px; padding: 0px;
+                                Text { text: "ACTION MODES"; color: #65a8ff; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                                Rectangle { horizontal-stretch: 1; background: transparent; }
+                                Button { text: "+ New mode"; primary: true; enabled: root.mode-rows.length <= 100; clicked => { root.open-mode-editor(-1); } }
+                            }
+                            Text { height: 20px; text: "Select a card to edit. Your watch button cycles through this order, then back to Normal."; color: #aeb8c7; font-size: 12px; }
+                            ScrollView {
+                                height: 106px; viewport-width: root.mode-rows.length * 202px; viewport-height: 94px;
+                                HorizontalBox {
+                                    padding: 0px; spacing: 10px; alignment: start;
+                                    for mode in root.mode-rows : Rectangle {
+                                        width: 192px; height: 92px; border-radius: 10px;
+                                        background: mode.selected ? #ffffff15 : #ffffff05;
+                                        border-color: mode.selected ? mode.color : #ffffff22; border-width: mode.selected ? 2px : 1px;
+                                        VerticalBox {
+                                            padding: 12px; spacing: 5px;
+                                            HorizontalBox {
+                                                Text { text: "●  " + mode.position; color: mode.color; font-size: 11px; }
+                                                Text { text: mode.active ? "ACTIVE" : "→"; color: mode.color; horizontal-alignment: right; font-size: 10px; }
+                                            }
+                                            Text { text: mode.name; color: #f4f7fb; font-size: 15px; font-weight: 700; overflow: elide; }
+                                            Text { text: mode.selected ? "Editing actions below" : "Click to edit"; color: #aeb8c7; font-size: 11px; }
+                                        }
+                                        TouchArea { clicked => { root.change-editing-layer(mode.id); } }
+                                        accessible-role: button; accessible-label: "Edit " + mode.name + " mode";
+                                        accessible-action-default => { root.change-editing-layer(mode.id); }
+                                    }
+                                }
                             }
                             HorizontalBox {
-                                padding: 0px; height: 32px;
-                                Text { text: "Editing layer"; color: #aeb8c7; vertical-alignment: center; }
-                                layer-picker := ComboBox { model: ["Normal", "Alternate"]; current-index: root.editing-layer; selected(value) => { root.change-editing-layer(self.current-index); } }
-                                Text { text: "Dashboard watch: " + root.active-layer; color: #f4f7fb; vertical-alignment: center; }
-                                Button { text: "Reset to Normal"; clicked => { root.reset-modes(); } }
+                                height: 32px; padding: 0px;
+                                Text { text: "Next mode button"; color: #aeb8c7; vertical-alignment: center; }
+                                switch-picker := ComboBox { width: 135px; model: ["Disabled", "FIND", "TIME", "CNCT"]; current-index: root.mode-switch-index; selected(value) => { root.change-mode-switch(value); } }
+                                Rectangle { horizontal-stretch: 1; background: transparent; }
+                                Button { text: "Name & color…"; enabled: root.editing-layer != 0; clicked => { root.open-mode-editor(root.editing-layer); } }
+                                Button { text: "←"; enabled: root.editing-layer != 0; accessible-label: "Move mode earlier"; clicked => { root.move-mode(root.editing-layer, -1); } }
+                                Button { text: "→"; enabled: root.editing-layer != 0; accessible-label: "Move mode later"; clicked => { root.move-mode(root.editing-layer, 1); } }
+                                Button { text: "Delete"; enabled: root.editing-layer != 0; clicked => { root.confirm-delete-mode = true; } }
                             }
-                            Text { height: 32px; text: "The switch replaces that gesture in both layers. Modes are per trusted watch and reset on app restart. AUTO always uses Normal; watch syncing is unchanged."; color: #8792a3; font-size: 11px; wrap: word-wrap; }
+                            HorizontalBox {
+                                height: 30px; padding: 0px;
+                                Text { text: "●  Dashboard watch · " + root.active-layer; color: root.active-mode-color; vertical-alignment: center; }
+                                Rectangle { horizontal-stretch: 1; background: transparent; }
+                                Button { width: 150px; text: "Reset to Normal"; clicked => { root.reset-modes(); } }
+                            }
+                            Text { height: 40px; text: "Editing does not activate a mode. The reserved gesture cycles all modes; each trusted watch has its own active mode. Mode order changes and app restart reset to Normal. AUTO stays Normal; watch syncing is unchanged."; color: #aab4c3; font-size: 11px; wrap: word-wrap; }
                         }
                     }
                     HorizontalBox {
@@ -786,45 +820,102 @@ export component MainWindow inherits Window {
             }
         }
     }
-    // Replaces the content while editing: background controls cannot receive keyboard focus.
+    // Only the editor is mounted while recording: background controls cannot receive focus.
     if root.keyboard-event != "" : Rectangle {
         background: #141b27;
         Rectangle {
-            width: 800px; height: 660px;
+            width: 800px; height: 656px;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             background: #ffffff08; border-radius: 18px; border-color: #ffffff20; border-width: 1px;
             VerticalBox {
                 padding: 26px; spacing: 12px;
-                PageHeading { height: 70px; eyebrow: "KEYBOARD ACTION · " + root.keyboard-event; title: "Build your shortcut"; detail: "Choose a key, add modifiers, then set the number of presses."; }
+                PageHeading { height: 70px; eyebrow: "KEYBOARD ACTION · " + root.keyboard-event; title: "Record your shortcut"; detail: "Tap a key, a combination, or a sequence — including a modifier twice."; }
                 HorizontalBox {
-                    height: 38px; padding: 0px; spacing: 10px;
-                    Text { horizontal-stretch: 1; text: (root.keyboard-control ? "Ctrl + " : "") + (root.keyboard-alt ? "Alt + " : "") + (root.keyboard-shift ? "Shift + " : "") + (root.keyboard-meta ? "Win + " : "") + root.keyboard-label + " ×" + root.keyboard-repetitions; color: #65a8ff; font-size: 23px; font-weight: 700; vertical-alignment: center; }
-                    Text { text: "Repeat"; color: #aeb8c7; vertical-alignment: center; }
-                    SpinBox { width: 100px; value <=> root.keyboard-repetitions; minimum: 1; maximum: 10; }
+                    height: 44px; padding: 0px; spacing: 16px;
+                    Button { width: 154px; text: root.keyboard-recording ? "■ Stop recording" : "● Record"; primary: true; clicked => { root.toggle-recording(); } }
+                    Text { text: root.recording-message; color: root.keyboard-recording ? #65a8ff : #aeb8c7; wrap: word-wrap; font-size: 12px; vertical-alignment: center; }
                 }
-                VerticalBox {
-                    padding: 0px; spacing: 6px; height: 258px;
-                    KeyboardRow { keys: root.keyboard-row-0; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
-                    KeyboardRow { keys: root.keyboard-row-1; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
-                    KeyboardRow { keys: root.keyboard-row-2; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
-                    KeyboardRow { keys: root.keyboard-row-3; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
-                    KeyboardRow { keys: root.keyboard-row-4; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
-                    KeyboardRow { keys: root.keyboard-row-5; selected-key: root.keyboard-key; choose(id, label) => { root.keyboard-key = id; root.keyboard-label = label; } }
+                ScrollView {
+                    height: root.show-manual-key ? 120px : 168px;
+                    VerticalBox {
+                        padding: 4px; spacing: 8px;
+                        for step in root.recorded-keys : Rectangle {
+                            height: 64px; background: #ffffff0c; border-radius: 10px; border-width: 1px; border-color: #ffffff14;
+                            HorizontalBox {
+                                padding: 14px; spacing: 20px;
+                                Text { width: 142px; text: step.detail; color: #aeb8c7; font-size: 12px; vertical-alignment: center; }
+                                Text { text: step.title; color: #f4f7fb; font-size: 21px; font-weight: 700; vertical-alignment: center; }
+                            }
+                        }
+                        if root.recorded-keys.length == 0 : Text { height: 50px; text: "Your recorded keys will appear here."; color: #aeb8c7; vertical-alignment: center; horizontal-alignment: center; }
+                    }
                 }
                 HorizontalBox {
-                    height: 30px; padding: 0px;
-                    CheckBox { text: "Ctrl"; checked <=> root.keyboard-control; }
-                    CheckBox { text: "Alt"; checked <=> root.keyboard-alt; }
-                    CheckBox { text: "Shift"; checked <=> root.keyboard-shift; }
-                    CheckBox { text: "Windows"; checked <=> root.keyboard-meta; }
+                    height: 32px; padding: 0px;
+                    Button { text: "Win → Win · Double Windows"; enabled: !root.keyboard-recording; clicked => { root.keyboard-preset("meta"); } }
+                    Button { text: "→ → · Right twice"; enabled: !root.keyboard-recording; clicked => { root.keyboard-preset("right"); } }
+                    Button { text: "Undo last"; enabled: !root.keyboard-recording; clicked => { root.undo-keyboard(); } }
                 }
-                Text { height: 32px; text: "US reference positions; your keyboard layout determines characters. Fn and secure system shortcuts are not supported. No keys are recorded."; color: #aeb8c7; font-size: 12px; wrap: word-wrap; }
-                Text { height: 32px; text: "Keys target the focused app. Test waits 3 seconds: choose a safe window and release modifiers. Elevated apps and secure desktops remain protected."; color: #aeb8c7; font-size: 12px; wrap: word-wrap; }
+                CheckBox { height: 28px; text: "Add a key manually"; enabled: !root.keyboard-recording; checked <=> root.show-manual-key; }
+                if root.show-manual-key : VerticalBox {
+                    height: 74px; padding: 0px; spacing: 8px;
+                    HorizontalBox {
+                        height: 32px; padding: 0px;
+                        manual-key-picker := ComboBox { width: 220px; model: root.manual-key-labels; current-index <=> root.manual-key-index; }
+                        Text { text: "Repeat"; color: #aeb8c7; vertical-alignment: center; }
+                        SpinBox { width: 90px; value <=> root.keyboard-repetitions; minimum: 1; maximum: 10; }
+                        Button { text: "Add key"; enabled: !root.keyboard-recording; clicked => { root.add-manual-key(); } }
+                    }
+                    HorizontalBox {
+                        height: 28px; padding: 0px;
+                        CheckBox { text: "Ctrl"; checked <=> root.keyboard-control; enabled: !root.keyboard-recording; }
+                        CheckBox { text: "Alt"; checked <=> root.keyboard-alt; enabled: !root.keyboard-recording; }
+                        CheckBox { text: "Shift"; checked <=> root.keyboard-shift; enabled: !root.keyboard-recording; }
+                        CheckBox { text: "Windows"; checked <=> root.keyboard-meta; enabled: !root.keyboard-recording; }
+                    }
+                }
+                Text { height: 46px; text: "Only this editor records keys; leaving it cancels. Up to 32 taps in 30 seconds, with pauses capped at 2 seconds. Physical positions follow your layout. System-reserved shortcuts may need a preset."; color: #aeb8c7; font-size: 12px; wrap: word-wrap; }
+                Text { height: 32px; text: "Playback targets the focused app. Test waits 3 seconds. Elevated apps and secure desktops remain protected; apps may reject synthetic input."; color: #aeb8c7; font-size: 12px; wrap: word-wrap; }
                 Rectangle { vertical-stretch: 1; background: transparent; }
                 HorizontalBox {
                     height: 36px; padding: 0px; alignment: end;
-                    Button { text: "Cancel"; clicked => { root.keyboard-event = ""; } }
-                    Button { text: "Save shortcut"; primary: true; clicked => { root.save-keyboard(); } }
+                    Button { text: "Cancel"; clicked => { root.cancel-keyboard(); } }
+                    Button { text: "Save shortcut"; primary: true; enabled: root.keyboard-valid && !root.keyboard-recording; clicked => { root.save-keyboard(); } }
+                }
+            }
+        }
+    }
+    if root.show-mode-editor || root.confirm-delete-mode : Rectangle {
+        background: #141b27;
+        Rectangle {
+            width: 480px; height: 330px;
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            background: #ffffff09; border-radius: 16px; border-width: 1px; border-color: #ffffff20;
+            VerticalBox {
+                padding: 24px; spacing: 18px;
+                if root.show-mode-editor : VerticalBox {
+                    padding: 0px; spacing: 18px;
+                    PageHeading { height: 110px; eyebrow: "ACTION MODES"; title: root.mode-edit-id < 0 ? "Create a mode" : "Name & color"; detail: "Try Music, Presentation or Focus. The name stays visible alongside the color."; }
+                    LineEdit { height: 32px; text <=> root.mode-edit-name; placeholder-text: "Mode name (up to 40 characters)"; }
+                    HorizontalBox {
+                        height: 32px; padding: 0px;
+                        Rectangle { width: 26px; height: 26px; border-radius: 13px; background: root.mode-colors[root.mode-edit-color]; }
+                        ComboBox { model: root.mode-color-names; current-index <=> root.mode-edit-color; }
+                    }
+                    HorizontalBox {
+                        height: 32px; padding: 0px; alignment: end;
+                        Button { text: "Cancel"; clicked => { root.show-mode-editor = false; } }
+                        Button { text: "Save mode"; primary: true; enabled: root.mode-edit-name != ""; clicked => { root.save-mode(); } }
+                    }
+                }
+                if root.confirm-delete-mode : VerticalBox {
+                    padding: 0px; spacing: 18px;
+                    PageHeading { eyebrow: "DELETE MODE"; title: "Delete " + root.editing-mode-name + "?"; detail: "This deletes the mode and its actions and cannot be undone. Other modes are kept. All watches return to Normal."; }
+                    HorizontalBox {
+                        padding: 0px; alignment: end;
+                        Button { text: "Cancel"; clicked => { root.confirm-delete-mode = false; } }
+                        Button { text: "Delete mode"; clicked => { root.delete-mode(root.editing-layer); root.confirm-delete-mode = false; } }
+                    }
                 }
             }
         }

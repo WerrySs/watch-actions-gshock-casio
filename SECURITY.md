@@ -18,7 +18,7 @@ This is a personal project, without a guaranteed response time. Please allow tim
 - Unknown/reserved Bluetooth reasons never trigger an action or settings write.
 - Pending writes are scoped to a linked physical watch; legacy unassigned queues never execute.
 - Actions are allowlisted and bounded; arbitrary shell commands are not supported.
-- Keyboard actions use a fixed key catalog and 1–10 repeats, never arbitrary text/scripts. They require explicit physical-watch trust (or a manual Test), respect OS permissions, and check focus/held keys before each chord. They can still invoke sensitive commands in a target app: only configure shortcuts you understand. No elevation or global keyboard recorder is installed.
+- Keyboard actions use a fixed key catalog and bounded recordings (32 complete steps, 30 seconds, pauses capped at 2 seconds). Recording requires an explicit Record action in the focused editor, cancels on focus loss, and pauses watch-triggered actions. No global hook, arbitrary script or Unicode text insertion is installed. Playback requires trusted hardware or a manual Test, respects OS permissions, and checks focus/held keys before every step. A shortcut can still invoke sensitive commands: configure only sequences you understand and never enter secrets while recording.
 - Layer switching is limited to recognized manual gestures and isolated per trusted physical watch. AUTO cannot switch modes; trust/relink changes and restart reset runtime modes.
 - State, packets, text, and images are size-checked and normalized before use.
 - Local state writes are atomic, and symbolic-link state paths are rejected.

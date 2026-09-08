@@ -14,6 +14,22 @@ enum RustCore {
         return String(cString: pointer)
     }
 
+    struct RecordedEvent: Encodable {
+        let key: String
+        let down: Bool
+        let time_ms: UInt64
+    }
+    struct RecordingResult: Decodable {
+        let steps: [KeyboardStep]
+        let idle: Bool
+        let error: String?
+    }
+    static func recordKeys(_ events: [RecordedEvent]) -> RecordingResult? {
+        guard events.count <= 512, let data = try? JSONEncoder().encode(events), let json = String(data: data, encoding: .utf8) else { return nil }
+        let result = ownedString(json, using: wb_record_keys_json)
+        return try? JSONDecoder().decode(RecordingResult.self, from: Data(result.utf8))
+    }
+
     static func normalizeModel(_ value: String) -> String {
         ownedString(value, using: wb_normalize_model)
     }

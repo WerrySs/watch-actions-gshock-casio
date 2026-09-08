@@ -68,7 +68,7 @@ struct DashboardView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 if store.config.switchEvent != nil {
-                    Label("\(store.panelActionLayer.title) mode", systemImage: "square.2.layers.3d")
+                    Label("\(store.config.name(for: store.panelActionLayer)) mode", systemImage: "square.2.layers.3d")
                         .font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
                 }
             }
@@ -330,8 +330,8 @@ struct ActionSheet: View {
                 Button("Done") { dismiss() }.buttonStyle(.accent).keyboardShortcut(.defaultAction)
             }
             Picker("Editing layer", selection: Binding(get: { store.editingLayer }, set: { store.editingLayer = $0 })) {
-                ForEach(ActionLayer.allCases) { layer in Text(layer.title).tag(layer) }
-            }.pickerStyle(.segmented)
+                ForEach(store.config.layers) { layer in Text(store.config.name(for: layer)).tag(layer) }
+            }.pickerStyle(.menu)
             ActionEditor(event: event, layer: store.editingLayer)
         }
         .padding(22)
@@ -380,8 +380,8 @@ struct ButtonActionsSheet: View {
                 }
             } else {
                 Picker("Editing layer", selection: Binding(get: { store.editingLayer }, set: { store.editingLayer = $0 })) {
-                    ForEach(ActionLayer.allCases) { layer in Text(layer.title).tag(layer) }
-                }.pickerStyle(.segmented)
+                    ForEach(store.config.layers) { layer in Text(store.config.name(for: layer)).tag(layer) }
+                }.pickerStyle(.menu)
                 ForEach(position.events) { event in ActionEditor(event: event, layer: store.editingLayer) }
             }
         }

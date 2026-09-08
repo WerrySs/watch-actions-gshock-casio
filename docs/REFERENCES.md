@@ -23,6 +23,7 @@ These describe Casio's official phone software, not a public desktop BLE API. Ma
 - [Microsoft Bluetooth LE](https://learn.microsoft.com/en-us/windows/apps/develop/devices-sensors/bluetooth-low-energy-overview): Windows GATT communication.
 - [Slint desktop documentation](https://docs.slint.dev/latest/docs/slint/guide/platforms/desktop/): UI toolkit, distinct from WinUI controls.
 - [Apple Core Graphics events](https://developer.apple.com/documentation/coregraphics/cgevent) and [Accessibility trust](https://developer.apple.com/documentation/applicationservices/1460720-axisprocesstrusted): native macOS keyboard requests and existing user permission.
+- [AppKit local event monitoring](https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:)) and [Slint window event access](https://docs.rs/i-slint-backend-winit/1.17.1/i_slint_backend_winit/trait.WinitWindowAccessor.html): explicit window-local recording, not global keyboard hooks.
 - [Microsoft SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput) and [KEYBDINPUT](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput): ordered Windows keyboard requests, physical scan codes, held-key state and integrity-level limits. Keyboard API references reviewed September 8, 2026.
 
 Linking a project does not grant permission to copy its code/assets. Review licensing and attribution before reuse. Actual dependency notices are in [Third-party notices](../THIRD_PARTY_NOTICES.md).

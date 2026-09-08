@@ -1,5 +1,5 @@
 //! Bounded physical-key shortcuts. Labels use US reference positions; the OS layout
-//! determines printable characters. No text recording, scripts, or global key hooks.
+//! determines printable characters. Recording consumes explicit, window-local key events only.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -106,7 +106,59 @@ pub const KEYS: &[KeyboardKey] = &[
     key("down", "↓", 5, 125, 80, true),
     key("up", "↑", 5, 126, 72, true),
     key("right", "→", 5, 124, 77, true),
+    key("control", "Ctrl", 6, 59, 29, false),
+    key("alt", "Alt", 6, 58, 56, false),
+    key("shift", "Shift", 6, 56, 42, false),
+    key("meta", "Win", 6, 55, 91, true),
+    key("right_control", "Right Ctrl", 6, 62, 29, true),
+    key("right_alt", "Right Alt", 6, 61, 56, true),
+    key("right_shift", "Right Shift", 6, 60, 54, false),
+    key("right_meta", "Right Win", 6, 54, 92, true),
 ];
+
+impl KeyboardKey {
+    pub fn modifier(&self) -> u8 {
+        match self.id {
+            "control" | "right_control" => 1,
+            "alt" | "right_alt" => 2,
+            "shift" | "right_shift" => 4,
+            "meta" | "right_meta" => 8,
+            _ => 0,
+        }
+    }
+}
+
+pub const MAX_RECORDED_STEPS: usize = 32;
+pub const MAX_RECORDING_MS: u64 = 30_000;
+
+/// One complete, balanced tap/chord. Delay precedes the tap, never its release.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KeyboardStep {
+    pub key: String,
+    pub modifiers: u8,
+    pub delay_ms: u16,
+}
+
+impl KeyboardStep {
+    pub fn definition(&self) -> Option<&'static KeyboardKey> {
+        let key = KEYS.iter().find(|k| k.id == self.key)?;
+        (self.modifiers <= 15 && self.modifiers & key.modifier() == 0 && self.delay_ms <= 2000)
+            .then_some(key)
+    }
+    pub fn summary(&self) -> String {
+        let Some(key) = self.definition() else {
+            return "Invalid key".into();
+        };
+        let mut labels = Vec::new();
+        for (bit, label) in [(1, "Ctrl"), (2, "Alt"), (4, "Shift"), (8, "Win")] {
+            if self.modifiers & bit != 0 {
+                labels.push(label);
+            }
+        }
+        labels.push(key.label);
+        labels.join(" + ")
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KeyboardShortcut {
@@ -116,6 +168,8 @@ pub struct KeyboardShortcut {
     pub shift: bool,
     pub meta: bool,
     pub repetitions: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<Vec<KeyboardStep>>,
 }
 
 impl Default for KeyboardShortcut {
@@ -127,18 +181,81 @@ impl Default for KeyboardShortcut {
             shift: false,
             meta: false,
             repetitions: 1,
+            sequence: None,
         }
     }
 }
 
 impl KeyboardShortcut {
     pub fn definition(&self) -> Option<&'static KeyboardKey> {
-        (1..=10)
-            .contains(&self.repetitions)
-            .then(|| KEYS.iter().find(|key| key.id == self.key))
-            .flatten()
+        if self.sequence.is_some() || !(1..=10).contains(&self.repetitions) {
+            return None;
+        }
+        self.step(0).definition()
+    }
+    fn step(&self, delay_ms: u16) -> KeyboardStep {
+        KeyboardStep {
+            key: self.key.clone(),
+            modifiers: u8::from(self.control)
+                | (u8::from(self.alt) << 1)
+                | (u8::from(self.shift) << 2)
+                | (u8::from(self.meta) << 3),
+            delay_ms,
+        }
+    }
+    pub fn recorded(steps: Vec<KeyboardStep>) -> Self {
+        // Old clients reject this unknown key instead of silently replaying a fallback arrow.
+        Self {
+            key: "recorded_sequence".into(),
+            sequence: Some(steps),
+            ..Default::default()
+        }
+    }
+    pub fn steps(&self) -> Option<Vec<KeyboardStep>> {
+        if let Some(steps) = &self.sequence {
+            if self.key != "recorded_sequence"
+                || self.repetitions != 1
+                || self.control
+                || self.alt
+                || self.shift
+                || self.meta
+                || steps.is_empty()
+                || steps.len() > MAX_RECORDED_STEPS
+                || steps[0].delay_ms != 0
+                || steps.iter().skip(1).any(|s| s.delay_ms < 40)
+                || steps.iter().any(|s| s.definition().is_none())
+                || steps.iter().map(|s| u64::from(s.delay_ms)).sum::<u64>() > MAX_RECORDING_MS
+            {
+                return None;
+            }
+            return Some(steps.clone());
+        }
+        self.definition()?;
+        Some(
+            (0..self.repetitions)
+                .map(|i| self.step(if i == 0 { 0 } else { 100 }))
+                .collect(),
+        )
+    }
+    pub fn is_valid(&self) -> bool {
+        self.steps().is_some()
+    }
+    pub fn recording_summary(&self) -> String {
+        self.steps().map_or_else(
+            || "Record a shortcut".into(),
+            |steps| {
+                steps
+                    .iter()
+                    .map(KeyboardStep::summary)
+                    .collect::<Vec<_>>()
+                    .join(" → ")
+            },
+        )
     }
     pub fn summary(&self) -> String {
+        if self.sequence.is_some() {
+            return self.recording_summary();
+        }
         let Some(key) = self.definition() else {
             return "Configure keyboard shortcut".to_owned();
         };
@@ -163,6 +280,55 @@ impl KeyboardShortcut {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recordings_validate_every_step_and_round_trip() {
+        let valid = KeyboardShortcut::recorded(vec![
+            KeyboardStep {
+                key: "meta".into(),
+                modifiers: 0,
+                delay_ms: 0,
+            },
+            KeyboardStep {
+                key: "meta".into(),
+                modifiers: 0,
+                delay_ms: 140,
+            },
+        ]);
+        assert!(valid.is_valid());
+        assert!(valid.definition().is_none());
+        assert_eq!(valid.summary(), "Win → Win");
+        assert_eq!(
+            serde_json::from_slice::<KeyboardShortcut>(&serde_json::to_vec(&valid).unwrap())
+                .unwrap(),
+            valid
+        );
+        for steps in [
+            vec![],
+            vec![KeyboardStep {
+                key: "meta".into(),
+                modifiers: 8,
+                delay_ms: 0,
+            }],
+            vec![KeyboardStep {
+                key: "meta".into(),
+                modifiers: 0,
+                delay_ms: 1,
+            }],
+            vec![
+                KeyboardStep {
+                    key: "meta".into(),
+                    modifiers: 0,
+                    delay_ms: 0
+                };
+                33
+            ],
+        ] {
+            assert!(!KeyboardShortcut::recorded(steps).is_valid());
+        }
+        let mut malformed = valid;
+        malformed.repetitions = 2;
+        assert!(!malformed.is_valid());
+    }
     #[test]
     fn catalog_has_unique_codes_and_ids() {
         use std::collections::BTreeSet;

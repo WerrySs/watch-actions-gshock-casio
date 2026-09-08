@@ -78,6 +78,26 @@ pub extern "C" fn wb_keyboard_catalog_json() -> *mut c_char {
 }
 
 #[unsafe(no_mangle)]
+/// Reduces bounded, explicitly supplied key transitions; never observes the system keyboard.
+/// Release the result with `wb_string_free`.
+/// # Safety
+/// `value` must be null or a readable NUL-terminated JSON string for this call.
+pub unsafe extern "C" fn wb_record_keys_json(value: *const c_char) -> *mut c_char {
+    let events = unsafe { read_c_string(value) }
+        .filter(|s| s.len() <= 100_000)
+        .and_then(|s| serde_json::from_str::<Vec<crate::recording::RecordedEvent>>(&s).ok());
+    let result = events.map_or(
+        crate::recording::RecordingResult {
+            steps: vec![],
+            idle: false,
+            error: Some("Invalid recording data"),
+        },
+        |events| crate::recording::replay_events(&events),
+    );
+    into_c_string(serde_json::to_string(&result).unwrap_or_default())
+}
+
+#[unsafe(no_mangle)]
 /// Releases a string allocated by this library.
 ///
 /// # Safety

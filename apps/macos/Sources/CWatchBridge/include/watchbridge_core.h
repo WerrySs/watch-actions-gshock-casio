@@ -13,6 +13,7 @@ typedef struct WbBytes {
 
 const char *wb_core_version(void);
 char *wb_keyboard_catalog_json(void);
+char *wb_record_keys_json(const char *value);
 void wb_string_free(char *value);
 void wb_bytes_free(WbBytes value);
 char *wb_normalize_model(const char *value);

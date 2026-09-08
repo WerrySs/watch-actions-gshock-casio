@@ -81,9 +81,16 @@ enum Snapshotter {
         let fullPage = CommandLine.arguments.contains("--full-page")
         if let i = CommandLine.arguments.firstIndex(of: "--only"), CommandLine.arguments.count > i + 1,
            CommandLine.arguments[i + 1] == "keyboard" {
-            let editor = KeyboardShortcutEditor(shortcut: KeyboardShortcut(meta: true, repetitions: 2)) { _ in }
-            capture(editor, size: CGSize(width: 738, height: 590), to: directory.appendingPathComponent("keyboard.png"))
+            let editor = KeyboardShortcutEditor(shortcut: .recorded([.init(key: "meta"), .init(key: "meta", delayMs: 140)]), manualExpanded: CommandLine.arguments.contains("--manual-key")) { _ in }
+                .environment(WatchStore.preview(connected: false))
+            capture(editor, size: CGSize(width: 738, height: 660), to: directory.appendingPathComponent("keyboard.png"))
             print("Keyboard editor preview written to \(directory.path)")
+            return
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--only"), CommandLine.arguments.count > i + 1,
+           CommandLine.arguments[i + 1] == "indicator" {
+            capture(ModeIndicatorView(name: "Presentation", color: "purple").frame(width: 196, height: 32).padding(20),
+                    size: CGSize(width: 236, height: 72), to: directory.appendingPathComponent("indicator.png"))
             return
         }
         // Dashboard contains the largest image, so it is captured last to reduce interference.
@@ -93,10 +100,13 @@ enum Snapshotter {
         if CommandLine.arguments.contains("--action-layers") {
             for store in [connectedStore, waitingStore] {
                 store.setModeSwitch(.find)
+                store.updateMode(.profile(1), name: "Presentation", color: "purple")
+                store.addMode(named: "Music")
+                store.updateMode(store.editingLayer, name: "Music", color: "green")
                 store.setAction(WatchAction(kind: .keyboard, keyboard: KeyboardShortcut()), for: .rightShort)
-                store.setAction(WatchAction(kind: .keyboard, keyboard: KeyboardShortcut(meta: true, repetitions: 2)), for: .rightShort, layer: .alternate)
-                store.setAction(WatchAction(kind: .say, value: "Time for a break"), for: .leftLong, layer: .alternate)
-                store.editingLayer = .alternate
+                store.setAction(WatchAction(kind: .keyboard, keyboard: KeyboardShortcut(meta: true, repetitions: 2)), for: .rightShort, layer: .profile(1))
+                store.setAction(WatchAction(kind: .say, value: "Time for a break"), for: .leftLong, layer: .profile(1))
+                store.editingLayer = .profile(1)
             }
         }
         var jobs: [(String, SidebarItem, WatchStore)] = order.map { ("\($0.rawValue).png", $0, connectedStore) } + [("watch-waiting.png", .watch, waitingStore)]

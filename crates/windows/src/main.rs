@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod keyboard_editor;
 mod snapshots;
 mod state;
 
@@ -67,6 +68,7 @@ fn main() -> anyhow::Result<()> {
 
     install_keyboard_keys(&ui);
     install_callbacks(&ui, Arc::clone(&state));
+    keyboard_editor::install(&ui, Arc::clone(&state));
 
     #[cfg(target_os = "windows")]
     if let Some(bluetooth) = &bluetooth {
@@ -256,12 +258,9 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
                     String::new()
                 },
             };
-            state
-                .data
-                .write()
-                .actions
-                .actions_mut(layer)
-                .insert(event, action);
+            if let Some(actions) = state.data.write().actions.actions_mut(layer) {
+                actions.insert(event, action);
+            }
             state.save();
         }
     });
@@ -277,7 +276,10 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
             };
             let layer = editing_layer(&state, event);
             let mut data = state.data.write();
-            let action = data.actions.actions_mut(layer).entry(event).or_default();
+            let Some(actions) = data.actions.actions_mut(layer) else {
+                return;
+            };
+            let action = actions.entry(event).or_default();
             if action.kind.needs_value() {
                 action.value = sanitize_single_line(value.as_str(), 240);
             }
@@ -342,12 +344,12 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
     ui.on_change_editing_layer({
         let state = Arc::clone(&state);
         move |index| {
+            let layer = ActionLayer::from_id(u32::try_from(index).unwrap_or(0));
+            if !state.data.read().actions.layers().contains(&layer) {
+                return;
+            }
             let mut runtime = state.runtime.write();
-            runtime.editing_layer = if index == 1 {
-                ActionLayer::Alternate
-            } else {
-                ActionLayer::Normal
-            };
+            runtime.editing_layer = layer;
             runtime.last_update = chrono::Utc::now();
         }
     });
@@ -375,80 +377,116 @@ fn install_callbacks(ui: &MainWindow, state: Arc<SharedState>) {
             state.trace("All watches reset to Normal mode");
         }
     });
-    ui.on_edit_keyboard({
-        let state = Arc::clone(&state);
+    ui.on_open_mode_editor({
         let weak = ui.as_weak();
-        move |code| {
-            let (Some(event), Some(ui)) = (event_for_code(code.as_str()), weak.upgrade()) else {
+        let state = state.clone();
+        move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let data = state.data.read();
+            if id == 0 {
                 return;
-            };
-            let layer = editing_layer(&state, event);
-            let shortcut = state
-                .data
-                .read()
-                .actions
-                .action_in_layer(event, layer)
-                .keyboard
-                .unwrap_or_default();
-            ui.set_keyboard_layer(if layer == ActionLayer::Alternate {
-                1
+            }
+            ui.set_mode_edit_id(id);
+            if id < 0 {
+                ui.set_mode_edit_name("".into());
+                ui.set_mode_edit_color(1);
             } else {
-                0
-            });
-            ui.set_keyboard_label(
-                shortcut
-                    .definition()
-                    .map_or("Select a key", |k| k.label)
-                    .into(),
-            );
-            ui.set_keyboard_key(shortcut.key.into());
-            ui.set_keyboard_control(shortcut.control);
-            ui.set_keyboard_alt(shortcut.alt);
-            ui.set_keyboard_shift(shortcut.shift);
-            ui.set_keyboard_meta(shortcut.meta);
-            ui.set_keyboard_repetitions(i32::from(shortcut.repetitions));
-            ui.set_keyboard_event(code);
+                let Some(profile) = data.actions.profiles.iter().find(|p| p.id == id as u32) else {
+                    return;
+                };
+                ui.set_mode_edit_name(profile.name.clone().into());
+                ui.set_mode_edit_color(
+                    watchbridge_core::model::MODE_COLORS
+                        .iter()
+                        .position(|(name, _)| *name == profile.color)
+                        .unwrap_or(1) as i32,
+                );
+            }
+            ui.set_show_mode_editor(true);
         }
     });
-    ui.on_save_keyboard({
-        let state = Arc::clone(&state);
+    ui.on_save_mode({
         let weak = ui.as_weak();
+        let state = state.clone();
         move || {
-            let Some(ui) = weak.upgrade() else {
-                return;
-            };
-            let Some(event) = event_for_code(ui.get_keyboard_event().as_str()) else {
-                return;
-            };
+            let Some(ui) = weak.upgrade() else { return };
             if !state.can_mutate() {
                 return;
             }
-            let shortcut = KeyboardShortcut {
-                key: ui.get_keyboard_key().to_string(),
-                control: ui.get_keyboard_control(),
-                alt: ui.get_keyboard_alt(),
-                shift: ui.get_keyboard_shift(),
-                meta: ui.get_keyboard_meta(),
-                repetitions: u8::try_from(ui.get_keyboard_repetitions()).unwrap_or(0),
-            };
-            if shortcut.definition().is_none() {
+            let name = sanitize_single_line(ui.get_mode_edit_name().as_str(), 40);
+            if name.is_empty() {
                 return;
             }
-            let layer = if ui.get_keyboard_layer() == 1 && event != WatchButtonEvent::Automatic {
-                ActionLayer::Alternate
+            let color = watchbridge_core::model::MODE_COLORS
+                .get(ui.get_mode_edit_color() as usize)
+                .map_or("purple", |c| c.0);
+            let mut data = state.data.write();
+            let layer = if ui.get_mode_edit_id() < 0 {
+                let Some(layer) = data.actions.add_profile(&name) else {
+                    return;
+                };
+                layer
             } else {
-                ActionLayer::Normal
+                ActionLayer::from_id(ui.get_mode_edit_id() as u32)
             };
-            state.data.write().actions.actions_mut(layer).insert(
-                event,
-                WatchAction {
-                    kind: ActionKind::Keyboard,
-                    value: String::new(),
-                    keyboard: Some(shortcut),
-                },
-            );
+            let Some(profile) = data
+                .actions
+                .profiles
+                .iter_mut()
+                .find(|p| p.id == layer.id())
+            else {
+                return;
+            };
+            profile.name = name;
+            profile.color = color.into();
+            drop(data);
+            let mut runtime = state.runtime.write();
+            runtime.editing_layer = layer;
+            if ui.get_mode_edit_id() < 0 {
+                runtime.action_modes.reset();
+            }
+            drop(runtime);
             state.save();
-            ui.set_keyboard_event("".into());
+            ui.set_show_mode_editor(false);
+        }
+    });
+    ui.on_delete_mode({
+        let state = state.clone();
+        move |id| {
+            if id <= 0 || !state.can_mutate() {
+                return;
+            }
+            state
+                .data
+                .write()
+                .actions
+                .profiles
+                .retain(|p| p.id != id as u32);
+            let mut runtime = state.runtime.write();
+            runtime.editing_layer = ActionLayer::Normal;
+            runtime.action_modes.reset();
+            drop(runtime);
+            state.save();
+        }
+    });
+    ui.on_move_mode({
+        let state = state.clone();
+        move |id, delta: i32| {
+            if id <= 0 || ![-1, 1].contains(&delta) || !state.can_mutate() {
+                return;
+            }
+            let mut data = state.data.write();
+            let Some(index) = data.actions.profiles.iter().position(|p| p.id == id as u32) else {
+                return;
+            };
+            let next = index as i32 + delta;
+            if next < 0 || next as usize >= data.actions.profiles.len() {
+                return;
+            }
+            data.actions.profiles.swap(index, next as usize);
+            drop(data);
+            state.runtime.write().action_modes.reset();
+            state.save();
         }
     });
 }
@@ -471,46 +509,54 @@ fn install_bluetooth_callbacks(ui: &MainWindow, bluetooth: &bluetooth::Bluetooth
 }
 
 fn install_keyboard_keys(ui: &MainWindow) {
-    let keys = |row| {
-        ui_model(
-            KEYS.iter()
-                .filter(|k| k.row == row)
-                .map(|k| KeyCap {
-                    id: k.id.into(),
-                    label: k.label.into(),
-                })
-                .collect::<Vec<_>>(),
-        )
-    };
-    ui.set_keyboard_row_0(keys(0));
-    ui.set_keyboard_row_1(keys(1));
-    ui.set_keyboard_row_2(keys(2));
-    ui.set_keyboard_row_3(keys(3));
-    ui.set_keyboard_row_4(keys(4));
-    ui.set_keyboard_row_5(keys(5));
+    ui.set_manual_key_labels(ui_model(
+        KEYS.iter().map(|k| k.label.into()).collect::<Vec<_>>(),
+    ));
+    ui.set_manual_key_index(KEYS.iter().position(|k| k.id == "right").unwrap_or(0) as i32);
+}
+
+fn mode_color(name: &str) -> slint::Color {
+    let hex = watchbridge_core::model::MODE_COLORS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map_or("#4b9dff", |(_, hex)| *hex);
+    let rgb = u32::from_str_radix(&hex[1..], 16).unwrap_or(0x4b9dff);
+    slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
 }
 
 fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
     let data = shared.data.read().clone();
     let runtime = shared.runtime.read().clone();
     let watch = data.panel_watch();
-    ui.set_editing_layer(if runtime.editing_layer == ActionLayer::Alternate {
-        1
-    } else {
-        0
-    });
+    ui.set_editing_layer(runtime.editing_layer.id() as i32);
+    let active = watch.map_or(ActionLayer::Normal, |w| runtime.action_modes.layer(&w.id));
+    ui.set_mode_rows(ui_model(
+        data.actions
+            .layers()
+            .iter()
+            .enumerate()
+            .map(|(index, layer)| {
+                let color = mode_color(data.actions.layer_color(*layer));
+                ModeRow {
+                    id: layer.id() as i32,
+                    name: data.actions.layer_name(*layer).into(),
+                    color,
+                    active: active == *layer,
+                    selected: runtime.editing_layer == *layer,
+                    position: index as i32 + 1,
+                }
+            })
+            .collect::<Vec<_>>(),
+    ));
+    ui.set_active_mode_color(mode_color(data.actions.layer_color(active)));
+    ui.set_editing_mode_name(data.actions.layer_name(runtime.editing_layer).into());
     ui.set_mode_switch_index(match data.actions.switch_event {
         Some(WatchButtonEvent::Find) => 1,
         Some(WatchButtonEvent::Time) => 2,
         Some(WatchButtonEvent::Connect) => 3,
         _ => 0,
     });
-    ui.set_active_layer(
-        watch
-            .map_or(ActionLayer::Normal, |w| runtime.action_modes.layer(&w.id))
-            .title()
-            .into(),
-    );
+    ui.set_active_layer(data.actions.layer_name(active).into());
     ui.set_watch_model(
         watch
             .map(|item| item.effective_model())
@@ -590,7 +636,7 @@ fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
             title: event.title().into(),
             detail: event.instructions().into(),
             action: if is_switch {
-                "Switch Normal ↔ Alternate".into()
+                "Cycle to the next mode".into()
             } else {
                 action.summary().into()
             },
@@ -600,7 +646,8 @@ fn refresh_ui(ui: &MainWindow, shared: &SharedState) {
             value: action.value.into(),
             needs_value: action.kind.needs_value(),
             hint: if is_switch {
-                "The same gesture switches back to Normal. Watch syncing is unchanged.".into()
+                "Cycles the configured order and returns to Normal. Watch syncing is unchanged."
+                    .into()
             } else if event == WatchButtonEvent::Automatic {
                 "AUTO always uses the Normal action, regardless of the editing layer.".into()
             } else {

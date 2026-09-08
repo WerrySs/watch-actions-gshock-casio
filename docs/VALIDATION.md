@@ -8,6 +8,8 @@ Native Windows execution is checked on the Windows CI runner, not inferred from 
 
 The September 8 action-layer/keyboard review adds legacy action decoding and schema migration, per-watch mode/trust isolation, switch reversibility, AUTO routing, invalid key/repeat rejection and balanced native modifier-release plans (including partial Windows insertion cleanup). Local checks passed 27 Rust-core tests and 20 Swift tests plus Windows MSVC-target linting. Native Windows tests run in CI. None of these tests sends input into a user's desktop or substitutes for physical BLE/permission/focus acceptance; see [Action layers](ACTION_LAYERS.md).
 
+The subsequent recorder/multiple-mode change adds shared recording tests (including two distinct Command taps), migration of the old Alternate actions, named/color mode order, deletion/stale-ID handling, local-event adapters and indicator frame geometry. Local tests passed 34 Rust-core and 26 Swift tests. The Rust Windows client also builds/lints locally; native Windows input-plan and event-mapping tests run only on the Windows CI runner. Recording and playback were not exercised against an uncontrolled desktop.
+
 macOS screenshots are sample-data offscreen renders. The [design validation scope](../design-qa.md) explicitly separates those from interactive testing.
 
 ## Dependency audit
@@ -28,7 +30,7 @@ Minimum physical tests on macOS and Windows remain pending in [the acceptance-tr
 - Complete the exact-model/OS [hardware matrix](COMPATIBILITY.md), including two-watch isolation, reconnects, short TIME/FIND sessions and interrupted writes.
 - Test interactive Windows layout/Mica, keyboard navigation, scaling and accessibility on a real desktop; test Mac title-bar/sidebar and permission flows.
 - Validate native computer actions manually. Screen locking is reported as a request, not proof the screen is locked. On newer Macs it requires explicit Accessibility permission for the OS shortcut.
-- Validate Normal/Alternate switching with two trusted watches and restart/trust resets. Test → ×2 and modifier chords in a controlled target, no-permission/elevated-target rejection, held modifiers, focus changes between repeats, and non-US keyboard layouts. Never use destructive shortcuts as test fixtures.
+- Validate cycles of three or more named modes with two trusted watches, reorder/delete, restart/trust resets and AUTO staying Normal. Test the window-local recorder, double Command in a chosen utility, right-arrow twice, mixed chords, Escape/focus-loss cancellation and busy-action gating. Check permission/elevated-target rejection, held keys, non-US/AltGr layouts and focus changes between steps. Check the optional Mac indicator on notched/external displays, menu-bar color, Spaces and display scaling. Never use destructive shortcuts as fixtures.
 - Resolve or document an accepted mitigation for the indirect unmaintained dependency notices.
 - Obtain the owner's approval for stable distribution after the preceding gates are met. Release publication never changes repository visibility automatically.
 
