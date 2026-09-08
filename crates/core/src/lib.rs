@@ -2,7 +2,9 @@
 #![deny(clippy::all)]
 
 pub mod ffi;
+pub mod keyboard;
 pub mod model;
+pub mod modes;
 pub mod protocol;
 pub mod storage;
 

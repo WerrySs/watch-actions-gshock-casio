@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::keyboard::KeyboardShortcut;
+use crate::modes::ActionLayer;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 const MAXIMUM_WATCHES: usize = 100;
 const MAXIMUM_PENDING_CHANGES: usize = 32;
 const MAXIMUM_HISTORY_RECORDS: usize = 300;
@@ -380,10 +382,11 @@ pub enum ActionKind {
     LockScreen,
     ToggleMute,
     PlayPause,
+    Keyboard,
 }
 
 impl ActionKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::None,
         Self::FindComputer,
         Self::Speak,
@@ -392,6 +395,7 @@ impl ActionKind {
         Self::LockScreen,
         Self::ToggleMute,
         Self::PlayPause,
+        Self::Keyboard,
     ];
 
     pub fn label(self) -> &'static str {
@@ -404,6 +408,7 @@ impl ActionKind {
             Self::LockScreen => "Lock the screen",
             Self::ToggleMute => "Toggle mute",
             Self::PlayPause => "Play or pause media",
+            Self::Keyboard => "Keyboard shortcut",
         }
     }
 
@@ -434,6 +439,9 @@ impl ActionKind {
             Self::LockScreen => "Locks the current macOS or Windows session.",
             Self::ToggleMute => "Toggles the system output mute state when supported.",
             Self::PlayPause => "Sends the operating system media play/pause command.",
+            Self::Keyboard => {
+                "Sends keys to the focused app. Test waits 3 seconds so you can focus a safe window."
+            }
         }
     }
 }
@@ -442,6 +450,8 @@ impl ActionKind {
 pub struct WatchAction {
     pub kind: ActionKind,
     pub value: String,
+    #[serde(default)]
+    pub keyboard: Option<KeyboardShortcut>,
 }
 
 impl WatchAction {
@@ -449,11 +459,17 @@ impl WatchAction {
         Self {
             kind,
             value: String::new(),
+            keyboard: (kind == ActionKind::Keyboard).then(KeyboardShortcut::default),
         }
     }
 
     pub fn summary(&self) -> String {
         match self.kind {
+            ActionKind::Keyboard => self
+                .keyboard
+                .as_ref()
+                .map(KeyboardShortcut::summary)
+                .unwrap_or_else(|| "Configure keyboard shortcut".to_owned()),
             ActionKind::Speak if !self.value.trim().is_empty() => {
                 format!("Speak “{}”", sanitize_single_line(&self.value, 60))
             }
@@ -474,6 +490,10 @@ impl Default for WatchAction {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActionsConfig {
     pub actions: BTreeMap<WatchButtonEvent, WatchAction>,
+    #[serde(default)]
+    pub alternate_actions: BTreeMap<WatchButtonEvent, WatchAction>,
+    #[serde(default)]
+    pub switch_event: Option<WatchButtonEvent>,
     pub sync_time_on: BTreeSet<WatchButtonEvent>,
     pub time_offset_seconds: i32,
 }
@@ -495,6 +515,8 @@ impl Default for ActionsConfig {
 
         Self {
             actions,
+            alternate_actions: BTreeMap::new(),
+            switch_event: None,
             sync_time_on,
             time_offset_seconds: 0,
         }
@@ -503,10 +525,27 @@ impl Default for ActionsConfig {
 
 impl ActionsConfig {
     pub fn action(&self, event: WatchButtonEvent) -> WatchAction {
+        self.action_in_layer(event, ActionLayer::Normal)
+    }
+    pub fn action_in_layer(&self, event: WatchButtonEvent, layer: ActionLayer) -> WatchAction {
         if event == WatchButtonEvent::Unknown {
             return WatchAction::default();
         }
-        self.actions.get(&event).cloned().unwrap_or_default()
+        let actions = if layer == ActionLayer::Alternate && event != WatchButtonEvent::Automatic {
+            &self.alternate_actions
+        } else {
+            &self.actions
+        };
+        actions.get(&event).cloned().unwrap_or_default()
+    }
+    pub fn actions_mut(
+        &mut self,
+        layer: ActionLayer,
+    ) -> &mut BTreeMap<WatchButtonEvent, WatchAction> {
+        match layer {
+            ActionLayer::Normal => &mut self.actions,
+            ActionLayer::Alternate => &mut self.alternate_actions,
+        }
     }
 }
 
@@ -741,14 +780,31 @@ impl AppData {
             self.favorite_watch_id = None;
         }
 
-        self.actions
-            .actions
-            .retain(|event, _| WatchButtonEvent::CONFIGURABLE.contains(event));
-        for event in WatchButtonEvent::CONFIGURABLE {
-            let action = self.actions.actions.entry(event).or_default();
-            action.value = sanitize_single_line(&action.value, 240);
-            if !action.kind.needs_value() {
-                action.value.clear();
+        if matches!(
+            self.actions.switch_event,
+            Some(WatchButtonEvent::Automatic | WatchButtonEvent::Unknown)
+        ) {
+            self.actions.switch_event = None;
+        }
+        for actions in [
+            &mut self.actions.actions,
+            &mut self.actions.alternate_actions,
+        ] {
+            actions.retain(|event, _| WatchButtonEvent::CONFIGURABLE.contains(event));
+            for action in actions.values_mut() {
+                action.value = sanitize_single_line(&action.value, 240);
+                if !action.kind.needs_value() {
+                    action.value.clear();
+                }
+                if action.kind == ActionKind::Keyboard
+                    && action
+                        .keyboard
+                        .as_ref()
+                        .and_then(KeyboardShortcut::definition)
+                        .is_none()
+                {
+                    *action = WatchAction::default();
+                }
             }
         }
         self.actions
@@ -839,6 +895,7 @@ impl AppData {
             WatchAction {
                 kind: ActionKind::Speak,
                 value: "Time for a break".to_owned(),
+                keyboard: None,
             },
         );
         actions.actions.insert(

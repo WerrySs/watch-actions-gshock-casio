@@ -18,6 +18,12 @@ The Dashboard now uses the watch name as the watch selector, with model/photo/fa
 
 `--snapshot <directory> --full-window --only watch` renders the real `ContentView` including navigation. Use `--full-page --only actions` for the taller Actions view. CI produces these and minimum-size renders as a separate review artifact; inspect them before replacing README images. The fixture preserves the requested size even on a smaller runner desktop. macOS 26's offscreen glass compositor produced blank sidebar/toolbar regions locally, so those outputs were rejected. Live Computer Use inspection was unavailable because of a client/server version mismatch; it requires a client relaunch. No interactive audit pass is claimed.
 
+## Action-layer update — September 8, 2026
+
+The macOS target/protection banner now participates in the detail column's layout below the toolbar, leaving page headings unobscured. The Dashboard halo reaches full transparency inside the image bounds instead of using an oversized blurred texture. The Actions editor adds distinct active/edited layers and keeps common card heights; its visual keyboard has six key rows, explicit modifier selection, a repeat count and a safe-test notice.
+
+Local sample-data renders were inspected for the keyboard, layer cards, Dashboard and default/minimum-size settings banner. The banner/content gap and halo fade are visible; macOS 26 still leaves offscreen sidebar/toolbar glass blank, so those full-window local images are not publication assets. CI renders keyboard, default/minimum settings, and full-page action-layer fixtures for review. Full-page fixtures are now 1240 × 1680 (or 1080 wide with `--minimum-size`) so the new controls do not truncate the time-sync section. Use `--action-layers --only actions` to select the new sample configuration and `--only keyboard` for the standalone keyboard.
+
 ## Windows
 
 Slint defines a minimum 1080 × 700 window, two real cards per action row, equal card heights and common header/selector regions. Native CI can validate compilation, tests and startup. It does **not** establish that Mica, scaling or every interaction works on an end-user Windows desktop.

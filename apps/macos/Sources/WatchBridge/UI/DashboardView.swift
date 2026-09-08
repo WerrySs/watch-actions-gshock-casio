@@ -47,16 +47,7 @@ struct DashboardView: View {
             )
                 .frame(width: 350, height: 430)
                 .background {
-                    Ellipse()
-                        .fill(RadialGradient(
-                            colors: [Theme.accent.opacity(store.phase == .connected ? 0.22 : 0.08), .clear],
-                            center: .center,
-                            startRadius: 20,
-                            endRadius: 150
-                        ))
-                        .frame(width: 320, height: 410)
-                        .blur(radius: 32)
-                        .offset(y: 10)
+                    WatchGlow(connected: store.phase == .connected)
                 }
             VStack(spacing: 9) {
                 HStack(spacing: 10) {
@@ -76,14 +67,15 @@ struct DashboardView: View {
                 Text(store.panelStatusTitle)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                if store.config.switchEvent != nil {
+                    Label("\(store.panelActionLayer.title) mode", systemImage: "square.2.layers.3d")
+                        .font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(20)
         .frame(maxHeight: .infinity)
-        .background(
-            RadialGradient(colors: [Color.primary.opacity(0.05), .clear], center: .center, startRadius: 40, endRadius: 320)
-        )
     }
 
     private var watchOptions: some View {
@@ -275,7 +267,8 @@ struct GestureRow: View {
     @State private var hovering = false
 
     var body: some View {
-        let action = store.config.action(for: event)
+        let action = store.config.action(for: event, layer: store.panelActionLayer)
+        let isSwitch = store.config.switchEvent == event
         let active = store.lastEvent == event && store.phase == .connected
         HStack(spacing: 14) {
             GestureBadge(event: event, highlighted: active, large: true)
@@ -286,15 +279,15 @@ struct GestureRow: View {
             }
             Spacer()
             HStack(spacing: 7) {
-                Image(systemName: action.kind.systemImage).font(.system(size: 12, weight: .semibold))
-                Text(action.summary).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                Image(systemName: isSwitch ? "square.2.layers.3d" : action.kind.systemImage).font(.system(size: 12, weight: .semibold))
+                Text(isSwitch ? "Switch mode" : action.summary).font(.system(size: 12, weight: .medium)).lineLimit(1)
             }
-            .foregroundStyle(action.kind == .none ? Theme.text3 : Theme.accent)
+            .foregroundStyle(action.kind == .none && !isSwitch ? Theme.text3 : Theme.accent)
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(action.kind == .none ? Theme.surface2 : Theme.accentSoft, in: Capsule())
-            Button { store.testAction(for: event) } label: { Image(systemName: "play.fill") }
+            .background(action.kind == .none && !isSwitch ? Theme.surface2 : Theme.accentSoft, in: Capsule())
+            Button { store.testAction(for: event, layer: store.panelActionLayer) } label: { Image(systemName: "play.fill") }
                 .buttonStyle(.ghost)
-                .disabled(action.kind == .none)
+                .disabled(action.kind == .none || isSwitch || store.actionRunning)
                 .help("Test the action now")
             Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.text3)
         }
@@ -325,6 +318,7 @@ struct GestureRow: View {
 /// Sheet for a single gesture.
 @MainActor
 struct ActionSheet: View {
+    @Environment(WatchStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let event: WatchButtonEvent
 
@@ -335,16 +329,40 @@ struct ActionSheet: View {
                 Spacer()
                 Button("Done") { dismiss() }.buttonStyle(.accent).keyboardShortcut(.defaultAction)
             }
-            ActionEditor(event: event)
+            Picker("Editing layer", selection: Binding(get: { store.editingLayer }, set: { store.editingLayer = $0 })) {
+                ForEach(ActionLayer.allCases) { layer in Text(layer.title).tag(layer) }
+            }.pickerStyle(.segmented)
+            ActionEditor(event: event, layer: store.editingLayer)
         }
         .padding(22)
         .frame(width: 560)
+        .onAppear { store.editingLayer = store.panelActionLayer }
+    }
+}
+
+/// Fade reaches zero inside the image bounds, so neither a column nor a sidebar
+/// can cut through a visible blur. No oversized offscreen blur texture is needed.
+private struct WatchGlow: View {
+    let connected: Bool
+    var body: some View {
+        GeometryReader { geometry in
+            RadialGradient(
+                stops: [.init(color: Theme.accent.opacity(connected ? 0.20 : 0.09), location: 0),
+                        .init(color: Theme.accent.opacity(connected ? 0.08 : 0.035), location: 0.45),
+                        .init(color: .clear, location: 1)],
+                center: .center, startRadius: 0,
+                endRadius: max(1, min(geometry.size.width, geometry.size.height) * 0.48)
+            )
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
 /// Sheet shown after selecting a physical button in the watch diagram.
 @MainActor
 struct ButtonActionsSheet: View {
+    @Environment(WatchStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let position: WatchButtonPosition
 
@@ -361,10 +379,14 @@ struct ButtonActionsSheet: View {
                         .foregroundStyle(Theme.text2)
                 }
             } else {
-                ForEach(position.events) { event in ActionEditor(event: event) }
+                Picker("Editing layer", selection: Binding(get: { store.editingLayer }, set: { store.editingLayer = $0 })) {
+                    ForEach(ActionLayer.allCases) { layer in Text(layer.title).tag(layer) }
+                }.pickerStyle(.segmented)
+                ForEach(position.events) { event in ActionEditor(event: event, layer: store.editingLayer) }
             }
         }
         .padding(22)
         .frame(width: 560)
+        .onAppear { store.editingLayer = store.panelActionLayer }
     }
 }

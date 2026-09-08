@@ -127,6 +127,29 @@ mod tests {
     }
 
     #[test]
+    fn schema_two_actions_migrate_without_losing_the_original_file_on_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.json");
+        let mut legacy = serde_json::to_value(AppData::demo()).unwrap();
+        legacy["schema_version"] = 2.into();
+        let config = legacy["actions"].as_object_mut().unwrap();
+        config.remove("alternate_actions");
+        config.remove("switch_event");
+        for action in config["actions"].as_object_mut().unwrap().values_mut() {
+            action.as_object_mut().unwrap().remove("keyboard");
+        }
+        let original = serde_json::to_vec(&legacy).unwrap();
+        fs::write(&path, &original).unwrap();
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.actions.actions, AppData::demo().actions.actions);
+        assert!(loaded.actions.alternate_actions.is_empty());
+        assert!(loaded.actions.switch_event.is_none());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        save(&path, &loaded).unwrap();
+        assert_eq!(load(&path).unwrap().schema_version, 3);
+    }
+
+    #[test]
     fn newer_schema_is_rejected_without_rewriting_the_file() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("state.json");

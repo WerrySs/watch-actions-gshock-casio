@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use chrono::{DateTime, Utc};
 use parking_lot::{Mutex, RwLock};
 use watchbridge_core::model::{AppData, ConnectionPhase};
+use watchbridge_core::modes::{ActionLayer, ActionModes};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -16,6 +17,8 @@ pub struct RuntimeStatus {
     pub is_scanning: bool,
     pub trace: VecDeque<String>,
     pub last_action_result: Option<String>,
+    pub action_modes: ActionModes,
+    pub editing_layer: ActionLayer,
     pub last_update: DateTime<Utc>,
 }
 
@@ -28,6 +31,8 @@ impl Default for RuntimeStatus {
             is_scanning: false,
             trace: VecDeque::new(),
             last_action_result: None,
+            action_modes: ActionModes::default(),
+            editing_layer: ActionLayer::Normal,
             last_update: Utc::now(),
         }
     }

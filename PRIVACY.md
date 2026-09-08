@@ -9,6 +9,7 @@ Depending on the features used, the app may store:
 - watch identifiers, detected and configured models, and optional nicknames;
 - cached battery, temperature, city, timer, alarm, reminder, and settings values;
 - pending changes and configured computer actions;
+- keyboard key IDs, selected modifiers, repetition counts and Normal/Alternate action mappings (but not typed input or session modes);
 - connection timestamps, outcomes, and bounded diagnostic messages; and
 - user-selected watch photos after local sanitization.
 
@@ -17,6 +18,8 @@ macOS stores these files under the current user's Application Support directory.
 ## Data not collected
 
 The project contains no analytics, advertising, crash-upload, tracking, account, or cloud-synchronization SDK. WatchBridge does not upload watch data or photos. Normal operating-system services may still be involved when you explicitly open a web link, run a Shortcut, use text-to-speech, or ask the operating system to open another application.
+
+The visual keyboard is a local picker, not a key recorder. Before sending a configured shortcut, WatchBridge checks the focused application/window and whether relevant keys are held; it does not retain a history of foreground applications or typed content. The receiving application handles synthetic keys according to its own behavior and privacy policy.
 
 ## User-supplied images
 

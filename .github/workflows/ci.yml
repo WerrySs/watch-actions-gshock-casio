@@ -97,13 +97,16 @@ jobs:
 
       - name: Render sample-data documentation previews
         run: |
-          for page in watch actions watches; do
+          for page in watch actions watches settings; do
             dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/default" --full-window --only "$page"
           done
-          for page in watch actions; do
+          for page in watch actions settings; do
             dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/minimum" --full-window --minimum-size --only "$page"
           done
           dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/full-page" --full-window --full-page --only actions
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/layers" --full-window --full-page --action-layers --only actions
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/layers-minimum" --full-window --minimum-size --full-page --action-layers --only actions
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/keyboard" --only keyboard
       - name: Upload documentation previews for visual review
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

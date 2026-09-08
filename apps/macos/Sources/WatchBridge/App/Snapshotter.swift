@@ -79,10 +79,26 @@ enum Snapshotter {
         let fullWindow = CommandLine.arguments.contains("--full-window")
         let minimumSize = CommandLine.arguments.contains("--minimum-size")
         let fullPage = CommandLine.arguments.contains("--full-page")
+        if let i = CommandLine.arguments.firstIndex(of: "--only"), CommandLine.arguments.count > i + 1,
+           CommandLine.arguments[i + 1] == "keyboard" {
+            let editor = KeyboardShortcutEditor(shortcut: KeyboardShortcut(meta: true, repetitions: 2)) { _ in }
+            capture(editor, size: CGSize(width: 738, height: 590), to: directory.appendingPathComponent("keyboard.png"))
+            print("Keyboard editor preview written to \(directory.path)")
+            return
+        }
         // Dashboard contains the largest image, so it is captured last to reduce interference.
         let order: [SidebarItem] = [.watches, .reminders, .alarms, .settings, .actions, .log, .watch]
         let connectedStore = WatchStore.preview(connected: true)
         let waitingStore = WatchStore.preview(connected: false)
+        if CommandLine.arguments.contains("--action-layers") {
+            for store in [connectedStore, waitingStore] {
+                store.setModeSwitch(.find)
+                store.setAction(WatchAction(kind: .keyboard, keyboard: KeyboardShortcut()), for: .rightShort)
+                store.setAction(WatchAction(kind: .keyboard, keyboard: KeyboardShortcut(meta: true, repetitions: 2)), for: .rightShort, layer: .alternate)
+                store.setAction(WatchAction(kind: .say, value: "Time for a break"), for: .leftLong, layer: .alternate)
+                store.editingLayer = .alternate
+            }
+        }
         var jobs: [(String, SidebarItem, WatchStore)] = order.map { ("\($0.rawValue).png", $0, connectedStore) } + [("watch-waiting.png", .watch, waitingStore)]
         // `--only <name>` captures one screen; one process per window prevents interference.
         if let i = CommandLine.arguments.firstIndex(of: "--only"), CommandLine.arguments.count > i + 1 {
@@ -100,7 +116,7 @@ enum Snapshotter {
             // A full-host ScrollView can snapshot transparently, so add a two-point opaque column.
             let wrapped = HStack(spacing: 0) { content; Color.clear.frame(width: 2) }
             let size = fullWindow
-                ? CGSize(width: minimumSize ? 1_080 : 1_240, height: fullPage ? 1_400 : (minimumSize ? 700 : 800))
+                ? CGSize(width: minimumSize ? 1_080 : 1_240, height: fullPage ? 1_680 : (minimumSize ? 700 : 800))
                 : CGSize(width: 960, height: 760)
             capture(ZStack { Color(nsColor: .windowBackgroundColor); wrapped }, size: size, to: url)
             print("\(isBlank(url) ? "BLANK   " : "ok      ") \(name)")

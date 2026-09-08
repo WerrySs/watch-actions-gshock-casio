@@ -11,6 +11,8 @@ enum ActionRunner {
         switch action.kind {
         case .none:
             return "no action"
+        case .keyboard:
+            return await KeyboardEmitter.run(action.keyboard)
         case .sound:
             return await playAlert()
         case .say:

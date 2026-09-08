@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use url::Url;
+use watchbridge_core::keyboard::KeyboardShortcut;
 use watchbridge_core::model::{ActionKind, WatchAction, sanitize_single_line};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(20);
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -26,6 +29,7 @@ pub async fn run(action: WatchAction) -> ActionOutcome {
 pub fn run_sync(action: &WatchAction) -> ActionOutcome {
     match action.kind {
         ActionKind::None => success("No action configured"),
+        ActionKind::Keyboard => keyboard(action.keyboard.as_ref()),
         ActionKind::FindComputer => {
             let result = run_powershell(
                 "[console]::beep(880,250); [console]::beep(880,250); [console]::beep(880,250)",
@@ -58,6 +62,138 @@ pub fn run_sync(action: &WatchAction) -> ActionOutcome {
         ActionKind::ToggleMute => media_key(0xAD, "Toggled speaker mute"),
         ActionKind::PlayPause => media_key(0xB3, "Toggled media playback"),
     }
+}
+
+fn keyboard_plan(shortcut: &KeyboardShortcut) -> Option<Vec<INPUT>> {
+    let key = shortcut.definition()?;
+    let mut pressed = Vec::new();
+    for (enabled, scan, extended) in [
+        (shortcut.control, 0x1D, false),
+        (shortcut.alt, 0x38, false),
+        (shortcut.shift, 0x2A, false),
+        (shortcut.meta, 0x5B, true),
+    ] {
+        if enabled {
+            pressed.push((scan, extended));
+        }
+    }
+    pressed.push((key.windows_scan, key.extended));
+    let mut result: Vec<INPUT> = pressed
+        .iter()
+        .map(|&(scan, extended)| key_input(scan, extended, false))
+        .collect();
+    result.extend(
+        pressed
+            .iter()
+            .rev()
+            .map(|&(scan, extended)| key_input(scan, extended, true)),
+    );
+    Some(result)
+}
+
+fn key_input(scan: u16, extended: bool, up: bool) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: 0,
+                wScan: scan,
+                dwFlags: KEYEVENTF_SCANCODE
+                    | if extended { KEYEVENTF_EXTENDEDKEY } else { 0 }
+                    | if up { KEYEVENTF_KEYUP } else { 0 },
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+/// A partial SendInput result is a prefix of the ordered plan. Release only
+/// keys pressed by that prefix which have not already received their key-up.
+fn pending_key_releases(plan: &[INPUT], sent: usize) -> Vec<INPUT> {
+    let mut held = Vec::new();
+    for input in plan.iter().take(sent) {
+        // All callers pass the keyboard-only plan built above.
+        let key = unsafe { input.Anonymous.ki };
+        let identity = (key.wScan, key.dwFlags & KEYEVENTF_EXTENDEDKEY != 0);
+        if key.dwFlags & KEYEVENTF_KEYUP != 0 {
+            if let Some(index) = held.iter().rposition(|k| *k == identity) {
+                held.remove(index);
+            }
+        } else {
+            held.push(identity);
+        }
+    }
+    held.into_iter()
+        .rev()
+        .map(|(scan, extended)| key_input(scan, extended, true))
+        .collect()
+}
+
+fn keyboard(shortcut: Option<&KeyboardShortcut>) -> ActionOutcome {
+    let Some(shortcut) = shortcut else {
+        return failure("Configure a keyboard shortcut first");
+    };
+    let Some(plan) = keyboard_plan(shortcut) else {
+        return failure("Invalid key or repetition count");
+    };
+    // Native input is deliberately not elevated: UIPI and secure desktops remain OS boundaries.
+    let target = unsafe { GetForegroundWindow() };
+    let mut process_id = 0;
+    unsafe {
+        GetWindowThreadProcessId(target, &mut process_id);
+    }
+    if target.is_null() || process_id == 0 || process_id == std::process::id() {
+        return failure("Focus another application before sending keyboard input");
+    }
+    let key = shortcut.definition().expect("validated above");
+    let virtual_key = unsafe {
+        MapVirtualKeyW(
+            u32::from(key.windows_scan) | if key.extended { 0xE000 } else { 0 },
+            MAPVK_VSC_TO_VK_EX,
+        )
+    };
+    if virtual_key == 0 {
+        return failure("Windows could not map the configured physical key");
+    }
+    for repetition in 0..shortcut.repetitions {
+        if unsafe { GetForegroundWindow() } != target {
+            return failure("Keyboard stopped: the focused window changed");
+        }
+        if [0x10, 0x11, 0x12, 0x5B, 0x5C, virtual_key]
+            .iter()
+            .any(|&key| unsafe { GetAsyncKeyState(key as i32) } < 0)
+        {
+            return failure("Keyboard stopped: release held keys and try again");
+        }
+        let sent = unsafe {
+            SendInput(
+                plan.len() as u32,
+                plan.as_ptr(),
+                std::mem::size_of::<INPUT>() as i32,
+            )
+        };
+        if sent != plan.len() as u32 {
+            let releases = pending_key_releases(&plan, sent as usize);
+            if !releases.is_empty() {
+                // Best effort only: Windows may also reject the cleanup request.
+                unsafe {
+                    SendInput(
+                        releases.len() as u32,
+                        releases.as_ptr(),
+                        std::mem::size_of::<INPUT>() as i32,
+                    );
+                }
+            }
+            return failure(
+                "Windows blocked keyboard input; elevated apps and secure desktops are not supported",
+            );
+        }
+        if repetition + 1 < shortcut.repetitions {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    success("Keyboard request sent; the focused app decides how to handle it")
 }
 
 fn media_key(key: u8, message: &str) -> ActionOutcome {
@@ -206,6 +342,81 @@ fn failure(summary: &str) -> ActionOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn partial_keyboard_plans_release_only_keys_they_still_hold() {
+        let plan = keyboard_plan(&KeyboardShortcut {
+            control: true,
+            alt: true,
+            shift: true,
+            meta: true,
+            ..Default::default()
+        })
+        .unwrap();
+        for sent in 0..=plan.len() {
+            let releases = pending_key_releases(&plan, sent);
+            assert_eq!(releases.len(), sent.min(plan.len() - sent));
+            let remaining = releases.len();
+            for (release, press) in releases.iter().zip(plan[..remaining].iter().rev()) {
+                let (release, press) = unsafe { (release.Anonymous.ki, press.Anonymous.ki) };
+                assert_eq!(release.wScan, press.wScan);
+                assert_eq!(release.dwFlags, press.dwFlags | KEYEVENTF_KEYUP);
+            }
+        }
+    }
+    #[test]
+    fn keyboard_plan_pairs_all_downs_with_reverse_releases() {
+        let shortcut = KeyboardShortcut {
+            control: true,
+            alt: true,
+            shift: true,
+            meta: true,
+            repetitions: 2,
+            ..Default::default()
+        };
+        let plan = keyboard_plan(&shortcut).unwrap();
+        assert_eq!(plan.len(), 10);
+        let scans: Vec<_> = plan
+            .iter()
+            .map(|input| unsafe { input.Anonymous.ki.wScan })
+            .collect();
+        assert_eq!(
+            scans[..5],
+            scans[5..].iter().rev().copied().collect::<Vec<_>>()
+        );
+        for (index, input) in plan.iter().enumerate() {
+            let key = unsafe { input.Anonymous.ki };
+            assert_eq!(key.dwFlags & KEYEVENTF_KEYUP != 0, index >= 5);
+            assert_ne!(key.dwFlags & KEYEVENTF_SCANCODE, 0);
+        }
+        assert_ne!(
+            unsafe { plan[4].Anonymous.ki.dwFlags } & KEYEVENTF_EXTENDEDKEY,
+            0
+        );
+    }
+    #[test]
+    fn keyboard_plan_rejects_unbounded_or_unknown_input() {
+        assert!(
+            keyboard_plan(&KeyboardShortcut {
+                repetitions: 0,
+                ..Default::default()
+            })
+            .is_none()
+        );
+        assert!(
+            keyboard_plan(&KeyboardShortcut {
+                repetitions: 11,
+                ..Default::default()
+            })
+            .is_none()
+        );
+        assert!(
+            keyboard_plan(&KeyboardShortcut {
+                key: "invalid".to_owned(),
+                ..Default::default()
+            })
+            .is_none()
+        );
+    }
     #[test]
     fn only_http_and_https_links_are_allowed() {
         for url in ["file:///C:/test", "javascript:alert(1)", "https://"] {
