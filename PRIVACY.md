@@ -9,7 +9,7 @@ Depending on the features used, the app may store:
 - watch identifiers, detected and configured models, and optional nicknames;
 - cached battery, temperature, city, timer, alarm, reminder, and settings values;
 - pending changes and configured computer actions;
-- keyboard key IDs, selected modifiers, repetition counts and Normal/Alternate action mappings (but not typed input or session modes);
+- reviewed keyboard key IDs, modifiers, bounded pauses/repetitions, named mode colors and action mappings (active session modes are not persisted);
 - connection timestamps, outcomes, and bounded diagnostic messages; and
 - user-selected watch photos after local sanitization.
 
@@ -19,7 +19,9 @@ macOS stores these files under the current user's Application Support directory.
 
 The project contains no analytics, advertising, crash-upload, tracking, account, or cloud-synchronization SDK. WatchBridge does not upload watch data or photos. Normal operating-system services may still be involved when you explicitly open a web link, run a Shortcut, use text-to-speech, or ask the operating system to open another application.
 
-The visual keyboard is a local picker, not a key recorder. Before sending a configured shortcut, WatchBridge checks the focused application/window and whether relevant keys are held; it does not retain a history of foreground applications or typed content. The receiving application handles synthetic keys according to its own behavior and privacy policy.
+The shortcut recorder consumes key events only while you explicitly record inside the focused editor. It does not install a global keyboard hook or read text fields, clipboard contents, or another application's input. Escape, closing, losing focus or 30 seconds cancels capture. Do not enter passwords or personal text while recording. Raw key transitions are temporary; only the reviewed key IDs, modifiers and bounded pauses are saved after Save. Recorder errors and action logs do not include recorded keys or mode names.
+
+Before playback, WatchBridge checks the focused app/window and relevant held keys, without retaining a history of foreground apps. The receiving app handles synthetic keys according to its own behavior and privacy policy. The optional macOS indicator draws a click-through window; it does not capture the screen or monitor other apps.
 
 ## User-supplied images
 

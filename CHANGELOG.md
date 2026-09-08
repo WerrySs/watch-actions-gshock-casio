@@ -6,8 +6,9 @@ All notable changes are documented here. This project follows Semantic Versionin
 
 ### Added
 
-- Normal/Alternate action layers, switched by a reserved FIND/TIME/CNCT gesture, with per-physical-watch session modes and an explicit reset.
-- Visual keyboard editors on both clients, using one shared key catalog, optional modifiers and 1–10 complete chord repetitions.
+- Named, colored action modes on both clients, with visual editing/active cards, ordering, deletion confirmation and a reserved FIND/TIME/CNCT cycle. Active modes remain isolated per trusted physical watch.
+- Explicit window-local keyboard recording on both clients, including modifier-only taps such as double Command, short sequences, presets and manual additions. Shared bounded Rust recorder; native balanced playback and no global hooks.
+- Optional black, click-through macOS mode indicator below the menu bar, compatible with notched and conventional displays, plus mode-colored menu-bar symbols.
 - Native keyboard emission with Accessibility checks on macOS and non-elevated SendInput on Windows, foreground/held-key guards and a three-second manual-test delay.
 - Regression tests for old action settings, layer isolation/trust/AUTO behavior, bounded keyboard requests and native key-release plans.
 - Native translucent macOS client built with SwiftUI and AppKit.
@@ -24,7 +25,7 @@ All notable changes are documented here. This project follows Semantic Versionin
 - Place macOS target/protection banners inside the detail layout, above page content, instead of over navigation and headings.
 - Fade the Dashboard watch halo to transparent inside its bounds, removing clipped glow edges and the oversized blur.
 - Keep Dashboard, button sheets and action editors consistent about the active versus edited layer; identify AUTO as Normal-only.
-- Initialize Windows keyboard rows once instead of rebuilding the key grid on state refresh.
+- Initialize the Windows manual-key catalog once instead of rebuilding it on state refresh.
 - Give the conditional Windows main layout explicit bounds, equal-width gesture cards and bounded Test buttons; keep key labels and keyboard-editor buttons inside the panel.
 - Match Windows widget colors to the app's dark surfaces even when the operating system uses a light theme, preserving keyboard-modifier label contrast.
 - Bind pending changes to physical watch IDs, preserve edits made while an older value is in flight, and quarantine legacy global queues.
@@ -38,7 +39,7 @@ All notable changes are documented here. This project follows Semantic Versionin
 
 ### Distribution
 
-- Preserve legacy action settings on upgrade; Windows schema 3 prevents older builds from overwriting layer data. Keyboard/layer changes are in CI review builds, not the existing Beta 3 packages.
+- Preserve legacy Normal/Alternate and keyboard settings on upgrade. Windows schema 4 blocks older writers; macOS writes config-v2.json while retaining config.json. These changes are in CI review builds, not the existing Beta 3 packages.
 - Include keyboard, layer and settings-banner sample-data previews in PR CI artifacts for visual review.
 - Render Windows client-area fixtures at default/minimum sizes without BLE or action callbacks, reject blank output, and refresh the inspected macOS README images.
 - Use an optional CPU-rendered fixture build for hosted Windows visual checks, with captured process diagnostics and dependency-policy coverage; downloadable apps retain their production renderer.

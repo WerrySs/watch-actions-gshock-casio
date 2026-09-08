@@ -134,6 +134,7 @@ mod tests {
         legacy["schema_version"] = 2.into();
         let config = legacy["actions"].as_object_mut().unwrap();
         config.remove("alternate_actions");
+        config.remove("profiles");
         config.remove("switch_event");
         for action in config["actions"].as_object_mut().unwrap().values_mut() {
             action.as_object_mut().unwrap().remove("keyboard");
@@ -142,11 +143,11 @@ mod tests {
         fs::write(&path, &original).unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.actions.actions, AppData::demo().actions.actions);
-        assert!(loaded.actions.alternate_actions.is_empty());
+        assert!(loaded.actions.profiles[0].actions.is_empty());
         assert!(loaded.actions.switch_event.is_none());
         assert_eq!(fs::read(&path).unwrap(), original);
         save(&path, &loaded).unwrap();
-        assert_eq!(load(&path).unwrap().schema_version, 3);
+        assert_eq!(load(&path).unwrap().schema_version, SCHEMA_VERSION);
     }
 
     #[test]

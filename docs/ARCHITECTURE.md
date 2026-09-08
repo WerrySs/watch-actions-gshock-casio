@@ -13,7 +13,7 @@ macOS uses native system materials, menus and controls. Windows uses compiled Sl
 
 ## Local state and migration
 
-Windows stores Rust `AppData` schema 3 in `state.json`, upgrading schema-2 settings with an empty Alternate layer and switching disabled. macOS keeps its Swift Codable files and a versioned `pending-by-watch-v2.json`. These formats are **not interchangeable**: cross-platform import/export is not implemented. Locations and recovery are in [Installation](INSTALLATION.md). Back up local state before development upgrades; downgrading is not supported.
+Windows stores Rust `AppData` schema 4 in `state.json`, migrating schema-2/3 actions and the original Alternate layer into named profiles. macOS reads legacy `config.json` and writes versioned `config-v2.json`, leaving the legacy file untouched; its pending queue remains `pending-by-watch-v2.json`. A failed newer-file load never falls back silently. These formats are **not interchangeable**. See [Installation](INSTALLATION.md); back up the full data folder before upgrading and do not alternate versions against it.
 
 Both clients cache watch snapshots and bounded history. The dashboard favorite is a presentation choice, not permission to redirect a write. Prepared changes belong to a specific linked physical watch ID. Legacy global queues are retained but never executed; recreate them with an explicit target.
 
@@ -34,8 +34,10 @@ Names and local identifiers are **not cryptographic authentication**. OS Bluetoo
 
 ## Resource and security boundaries
 
-- Layer mappings are persisted, but active modes are bounded, in-memory sets keyed by physical watch ID. Trust/relink changes clear the relevant mode; restart and explicit reset return to Normal. Swift and Rust routing have equivalent regression fixtures.
-- A Rust key catalog supplies Windows scan codes and macOS virtual key codes through the C ABI. Native emitters validate keys and repeat counts, prepare balanced down/up plans, and check foreground/held-key state before each repetition. OS permissions are never bypassed. See [Action layers](ACTION_LAYERS.md).
+- Mode IDs, names, colors, ordered profiles and actions are persisted (up to 100 named profiles). Active modes are bounded in-memory maps keyed by physical watch ID. Trust/relink changes clear the relevant mode; structure/switch changes, restart and reset return to Normal. Missing IDs never route edits into Normal.
+- The shared Rust 81-key catalog and pure recorder accept bounded physical-key transitions. Swift calls the recorder via its ownership-safe C ABI; Windows uses it directly. Native local AppKit/winit adapters run only during explicit editor capture. Balanced Core Graphics/SendInput plans check focus/held keys before every step; no delay occurs while keys are held. Recorded payloads use an invalid legacy-key sentinel so older pickers cannot silently play a default arrow.
+- Windows reuses Slint's existing winit backend via the `unstable-winit-030` feature, with Slint constrained to `~1.17.1` and the resolved version locked. No new recorder/input dependency is introduced. Review this adapter explicitly before a Slint minor upgrade.
+- macOS's optional mode HUD uses a nonactivating, click-through AppKit panel positioned inside the primary screen's visible frame, below the menu bar. Observation updates it only when display state changes; no screen capture, keyboard monitoring or polling is involved.
 - Requests, setup and helper processes have deadlines. A launched user application is intentionally not killed by a helper timeout.
 - Mac GATT writes, including handshake replies, share a serialized acknowledgement path.
 - State files are size-limited and atomically replaced. Direct file/parent symlink paths are rejected; this is not a defense against a compromised same-user process.

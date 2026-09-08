@@ -7,8 +7,9 @@ struct ActionsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                WatchButtonGuide()
                 ActionLayerControls()
+                DisclosureGroup("Watch button guide") { WatchButtonGuide().padding(.top, 10) }
+                    .font(.callout).foregroundStyle(Theme.text2)
                 VStack(alignment: .leading, spacing: 14) {
                     SectionTitle(
                         eyebrow: "Actions",
@@ -101,9 +102,9 @@ struct ActionEditor: View {
                 }
                 .frame(minHeight: equalized ? 88 : nil, alignment: .top)
 
-                FieldLabel(label: isSwitch ? "Reserved in both layers" : (event == .auto ? "Computer action · Normal only" : "Computer action")) {
+                FieldLabel(label: isSwitch ? "Reserved in all modes" : (event == .auto ? "Computer action · Normal only" : "Computer action")) {
                     if isSwitch {
-                        Label("Switch Normal ↔ Alternate", systemImage: "square.2.layers.3d")
+                        Label("Cycle to the next mode", systemImage: "square.2.layers.3d")
                             .font(.callout.weight(.semibold)).foregroundStyle(Theme.accent)
                             .frame(height: 28)
                     } else {
@@ -121,7 +122,7 @@ struct ActionEditor: View {
                     }
                 }
                 if isSwitch {
-                    Text("The saved computer action is paused. Use the same gesture to switch back.")
+                    Text("The saved computer action is paused. Repeat this gesture to cycle through your modes and return to Normal.")
                         .font(.callout).foregroundStyle(Theme.text2).frame(minHeight: 48)
                 } else if action.kind == .keyboard {
                     Button { showingKeyboard = true } label: {
@@ -173,36 +174,6 @@ struct ActionEditor: View {
     }
 }
 
-@MainActor
-struct ActionLayerControls: View {
-    @Environment(WatchStore.self) private var store
-    var body: some View {
-        Tile {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    SectionTitle(eyebrow: "Action layers", title: "One gesture, another set of actions")
-                    Spacer()
-                    Picker("Switch modes with", selection: Binding(
-                        get: { store.config.switchEvent?.rawValue ?? "" },
-                        set: { store.setModeSwitch(WatchButtonEvent(rawValue: $0)) })) {
-                        Text("Disabled").tag("")
-                        ForEach([WatchButtonEvent.find, .rightShort, .leftLong]) { event in Text(event.display).tag(event.rawValue) }
-                    }.frame(width: 245)
-                }
-                HStack {
-                    Picker("Editing layer", selection: Binding(get: { store.editingLayer }, set: { store.editingLayer = $0 })) {
-                        ForEach(ActionLayer.allCases) { layer in Text(layer.title).tag(layer) }
-                    }.pickerStyle(.segmented).frame(width: 265)
-                    Spacer()
-                    Text("Dashboard watch: \(store.panelActionLayer.title)").font(.callout).foregroundStyle(Theme.text2)
-                    Button("Reset to Normal") { store.resetActionModes() }.buttonStyle(.ghost)
-                }
-                Text("The switch replaces that gesture in both layers. Each trusted watch keeps its own mode until reset or app restart. AUTO always uses Normal; watch syncing is unchanged.")
-                    .font(.caption).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
 
 /// Neutral diagram that makes physical button positions clear without manufacturer photography.
 @MainActor

@@ -6,10 +6,10 @@ The committed images in `docs/screenshots/` are **offscreen full-window previews
 
 The intended layout retains the reference's prominent watch image, cached status and two-column action grid. A neutral shared watch PNG replaces manufacturer imagery; both Dashboard and button guide use it. Action cards reserve common header/control/value/help regions.
 
-The current Dashboard, Actions and keyboard images were generated in [CI run 34200458420](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34200458420), from commit `496794e`, and inspected before inclusion. Default previews are 1240 × 800; the full Actions page uses 1240 × 1680. The same run includes 1080 × 700 minimum-size views and minimum-width full-page layer cards. My Watches remains the inspected [CI run 34106828540](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34106828540) fixture from `44d413b`; its view has not changed.
+The Actions and keyboard README images come from inspected [CI run 34215691461](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34215691461) fixtures at `104af5c`, showing named modes and the recorder. The same run includes minimum-width modes, expanded manual controls and the indicator. Dashboard remains the inspected [CI run 34200458420](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34200458420) fixture at `496794e`; My Watches remains [CI run 34106828540](https://github.com/WerrySs/watch-actions-gshock-casio/actions/runs/34106828540) at `44d413b`. Default previews are 1240 × 800; full Actions pages are 1240 × 1680, or 1080 wide at minimum size. These are representative layout previews; later help-text changes are reviewed in the CI artifacts.
 
 1. **Dashboard:** the default-size view fits saved readings and four gesture rows alongside the watch and sidebar. Identity controls are consolidated. At minimum size the content scrolls and long action labels truncate; interactive keyboard/tooltips still need checking.
-2. **Actions:** the full-page view shows four equal-height cards with aligned headers/selectors and the A/B/C/D guide. The default/minimum window scrolls inside the content, leaving navigation in place.
+2. **Actions:** the full-page view shows numbered modes, four equal-height gesture cards with aligned headers/selectors, and a collapsible A/B/C/D guide. The default/minimum window scrolls inside the content, leaving navigation in place.
 3. **My Watches:** two sample units fit at default size, with paired/trusted and registered/not-paired states distinguished. Model, local-photo, favorite and explicit-link controls remain visible.
 
 Source screenshots supplied by the owner are not committed: they include unrelated notifications and third-party product photography. The README uses only generated sample data and the project's neutral illustration, not an official model photograph.
@@ -20,7 +20,7 @@ The Dashboard now uses the watch name as the watch selector, with model/photo/fa
 
 ## Action-layer update — September 8, 2026
 
-The macOS target/protection banner now participates in the detail column's layout below the toolbar, leaving page headings unobscured. The Dashboard halo reaches full transparency inside the image bounds instead of using an oversized blurred texture. The Actions editor adds distinct active/edited layers and keeps common card heights; its visual keyboard has six key rows, explicit modifier selection, a repeat count and a safe-test notice.
+The first action-layer update placed the macOS target/protection banner in the detail column's layout below the toolbar, leaving page headings unobscured. The Dashboard halo reaches full transparency inside the image bounds instead of using an oversized blurred texture. That update added distinct active/edited layers and common card heights; its six-row visual keyboard has since been replaced by the recorder described below.
 
 Local sample-data renders were inspected for the keyboard, layer cards, Dashboard and default/minimum-size settings banner. The banner/content gap and halo fade are visible; macOS 26 still leaves offscreen sidebar/toolbar glass blank, so those full-window local images are not publication assets. CI renders keyboard, default/minimum settings, and full-page action-layer fixtures for review. Full-page fixtures are now 1240 × 1680 (or 1080 wide with `--minimum-size`) so the new controls do not truncate the time-sync section. Use `--action-layers --only actions` to select the new sample configuration and `--only keyboard` for the standalone keyboard.
 
@@ -34,7 +34,19 @@ The first hosted capture attempt (CI 34202387610) failed after native tests and 
 
 The native CPU fixtures in CI 34203617517 revealed a real system-theme mismatch: the app's custom surfaces are dark, but system-light widget labels could be black on dark backgrounds. MainWindow now selects the dark widget palette explicitly. CPU-only previews also show a thin diagonal gradient rasterization seam; local production-renderer captures do not show it. This known fixture artifact is not retouched, and CPU previews are not used as Windows promotional screenshots or GPU acceptance evidence.
 
-## Interactive checks still required
+## Recorder and named modes — September 8, 2026
+
+The keyboard grid is replaced by an explicit Record/Stop flow and numbered key cards, with double-modifier/right-arrow presets and a collapsible manual fallback. The macOS editor keeps its Save/Cancel footer outside its scrolling content. The Windows manual layout shortens the sequence viewport so the footer stays inside the 800 × 656 panel at the minimum window size. No synthetic input was sent during layout review.
+
+Modes have numbered color-coded cards, separate active/editing text, name/color controls, reorder arrows and a deletion confirmation. The macOS button guide is collapsible so the mode controls and actions get priority. The optional Mac indicator uses a black capsule below the usable screen's top edge; it is nonactivating/click-through rather than a notch overlay. A pure frame test covers positive and negative-origin screen coordinates. Its sample render is not a photograph of a real notch or a multi-display acceptance result.
+
+Local minimum-size recorder, expanded manual, mode-card and name/color renders were inspected. Mac offscreen glass still leaves blank sidebar regions locally, so full-window README screenshots must come from inspected native CI outputs. Windows local renders here ran its production renderer on macOS; native Windows CPU fixtures are a separate required CI review. Neither certifies actual Windows input, GPU/Mica, screen-reader navigation, or Mac Spaces/menu-bar rendering.
+
+Native Windows CPU fixtures from CI 34215691461 were inspected at both sizes: recorder controls, mode editing and both equal-height card rows fit. The expanded manual editor's footer is inside its panel. Follow-up changes make its sequence rows denser so two taps fit without partial clipping, update the reserved-gesture help to describe a multi-mode cycle, and retarget the sample scroll offsets to the taller mode section. The documented CPU gradient seam remains a fixture limitation, not a retouched image or a GPU acceptance pass.
+
+CI 34216910855 passed automated checks and showed the denser manual rows correctly. Visual inspection nevertheless caught an overflow in the longer cycle-help text: its conditional Slint Text had no explicit width. The follow-up constrains that text to the reserved card region, with wrapping and a bounded fallback, and requires another native preview review before merge.
+
+### Interactive checks still required
 
 On physical macOS and Windows installations:
 

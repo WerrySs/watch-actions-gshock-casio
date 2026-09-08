@@ -28,7 +28,9 @@ pub fn run(
     {
         let mut data = state.data.write();
         data.actions.switch_event = Some(WatchButtonEvent::Find);
-        data.actions.alternate_actions.insert(
+        data.actions.profiles[0].name = "Presentation".into();
+        data.actions.add_profile("Music");
+        data.actions.profiles[0].actions.insert(
             WatchButtonEvent::Time,
             WatchAction {
                 kind: ActionKind::Keyboard,
@@ -40,7 +42,7 @@ pub fn run(
                 }),
             },
         );
-        data.actions.alternate_actions.insert(
+        data.actions.profiles[0].actions.insert(
             WatchButtonEvent::Connect,
             WatchAction {
                 kind: ActionKind::Speak,
@@ -49,15 +51,31 @@ pub fn run(
             },
         );
     }
-    state.runtime.write().editing_layer = ActionLayer::Alternate;
+    state.runtime.write().editing_layer = ActionLayer::Profile(1);
     install_keyboard_keys(&ui);
     refresh_ui(&ui, &state);
     ui.set_selected_navigation(5);
     ui.set_actions_preview_scroll(scroll);
     if keyboard {
         ui.set_keyboard_event("TIME".into());
-        ui.set_keyboard_control(true);
-        ui.set_keyboard_repetitions(2);
+        ui.set_recorded_keys(crate::ui_model(vec![
+            crate::RecordedKeyRow {
+                title: "Win".into(),
+                detail: "1 · Start".into(),
+            },
+            crate::RecordedKeyRow {
+                title: "Win".into(),
+                detail: "2 · +140 ms".into(),
+            },
+        ]));
+        ui.set_recording_message("Recorded. Review the steps, then save.".into());
+        ui.set_show_manual_key(crate::env_flag("--manual-key"));
+    }
+    if crate::env_flag("--mode-editor") {
+        ui.set_show_mode_editor(true);
+        ui.set_mode_edit_id(1);
+        ui.set_mode_edit_name("Presentation".into());
+        ui.set_mode_edit_color(1);
     }
     ui.window().set_size(LogicalSize::new(
         if minimum { 1080.0 } else { 1240.0 },

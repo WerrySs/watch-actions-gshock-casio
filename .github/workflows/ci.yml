@@ -107,6 +107,8 @@ jobs:
           dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/layers" --full-window --full-page --action-layers --only actions
           dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/layers-minimum" --full-window --minimum-size --full-page --action-layers --only actions
           dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/keyboard" --only keyboard
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/keyboard-manual" --only keyboard --manual-key
+          dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/mode-indicator" --only indicator
       - name: Upload documentation previews for visual review
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -184,13 +186,13 @@ jobs:
           Add-Type -AssemblyName System.Drawing
           $folder = Join-Path $env:RUNNER_TEMP "watchbridge-windows-previews"
           New-Item -ItemType Directory -Path $folder -Force | Out-Null
-          foreach ($page in @("actions", "action-cards", "second-row", "keyboard")) {
+          foreach ($page in @("actions", "action-cards", "second-row", "keyboard", "keyboard-manual", "mode-editor")) {
             foreach ($size in @("default", "minimum")) {
               $bmp = Join-Path $folder "$page-$size.bmp"
               $png = Join-Path $folder "$page-$size.png"
               $stderr = Join-Path $folder "$page-$size.stderr.txt"
               $stdout = Join-Path $folder "$page-$size.stdout.txt"
-              $flags = switch ($page) { "keyboard" { "--keyboard" } "action-cards" { "--cards" } "second-row" { "--second-row" } default { "" } }
+              $flags = switch ($page) { "keyboard" { "--keyboard" } "keyboard-manual" { "--keyboard --manual-key" } "mode-editor" { "--mode-editor" } "action-cards" { "--cards" } "second-row" { "--second-row" } default { "" } }
               if ($size -eq "minimum") { $flags += " --minimum-size" }
               Write-Output "Rendering $page ($size) with the CPU fixture renderer."
               $process = Start-Process -FilePath "target/release/watchbridge-windows.exe" -ArgumentList "--snapshot `"$bmp`" $flags" -RedirectStandardError $stderr -RedirectStandardOutput $stdout -PassThru

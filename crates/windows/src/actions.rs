@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use url::Url;
-use watchbridge_core::keyboard::KeyboardShortcut;
+use watchbridge_core::keyboard::{KeyboardShortcut, KeyboardStep};
 use watchbridge_core::model::{ActionKind, WatchAction, sanitize_single_line};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
@@ -64,14 +64,25 @@ pub fn run_sync(action: &WatchAction) -> ActionOutcome {
     }
 }
 
+#[cfg(test)]
 fn keyboard_plan(shortcut: &KeyboardShortcut) -> Option<Vec<INPUT>> {
-    let key = shortcut.definition()?;
+    Some(
+        shortcut
+            .steps()?
+            .iter()
+            .flat_map(|step| keyboard_step_plan(step).unwrap_or_default())
+            .collect(),
+    )
+}
+
+fn keyboard_step_plan(step: &KeyboardStep) -> Option<Vec<INPUT>> {
+    let key = step.definition()?;
     let mut pressed = Vec::new();
     for (enabled, scan, extended) in [
-        (shortcut.control, 0x1D, false),
-        (shortcut.alt, 0x38, false),
-        (shortcut.shift, 0x2A, false),
-        (shortcut.meta, 0x5B, true),
+        (step.modifiers & 1 != 0, 0x1D, false),
+        (step.modifiers & 2 != 0, 0x38, false),
+        (step.modifiers & 4 != 0, 0x2A, false),
+        (step.modifiers & 8 != 0, 0x5B, true),
     ] {
         if enabled {
             pressed.push((scan, extended));
@@ -134,31 +145,40 @@ fn keyboard(shortcut: Option<&KeyboardShortcut>) -> ActionOutcome {
     let Some(shortcut) = shortcut else {
         return failure("Configure a keyboard shortcut first");
     };
-    let Some(plan) = keyboard_plan(shortcut) else {
-        return failure("Invalid key or repetition count");
+    let Some(steps) = shortcut.steps() else {
+        return failure("Invalid or incomplete keyboard shortcut");
+    };
+    let Some(plans) = steps
+        .iter()
+        .map(keyboard_step_plan)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return failure("Could not plan the complete recording");
     };
     // Native input is deliberately not elevated: UIPI and secure desktops remain OS boundaries.
     let target = unsafe { GetForegroundWindow() };
     let mut process_id = 0;
-    unsafe {
-        GetWindowThreadProcessId(target, &mut process_id);
-    }
+    let target_thread = unsafe { GetWindowThreadProcessId(target, &mut process_id) };
     if target.is_null() || process_id == 0 || process_id == std::process::id() {
         return failure("Focus another application before sending keyboard input");
     }
-    let key = shortcut.definition().expect("validated above");
-    let virtual_key = unsafe {
-        MapVirtualKeyW(
-            u32::from(key.windows_scan) | if key.extended { 0xE000 } else { 0 },
-            MAPVK_VSC_TO_VK_EX,
-        )
-    };
-    if virtual_key == 0 {
-        return failure("Windows could not map the configured physical key");
-    }
-    for repetition in 0..shortcut.repetitions {
+    for (step, plan) in steps.iter().zip(&plans) {
+        if step.delay_ms > 0 {
+            thread::sleep(Duration::from_millis(u64::from(step.delay_ms)));
+        }
         if unsafe { GetForegroundWindow() } != target {
             return failure("Keyboard stopped: the focused window changed");
+        }
+        let key = step.definition().expect("validated above");
+        let virtual_key = unsafe {
+            MapVirtualKeyExW(
+                u32::from(key.windows_scan) | if key.extended { 0xE000 } else { 0 },
+                MAPVK_VSC_TO_VK_EX,
+                GetKeyboardLayout(target_thread),
+            )
+        };
+        if virtual_key == 0 {
+            return failure("Windows could not map the configured physical key");
         }
         if [0x10, 0x11, 0x12, 0x5B, 0x5C, virtual_key]
             .iter()
@@ -174,7 +194,7 @@ fn keyboard(shortcut: Option<&KeyboardShortcut>) -> ActionOutcome {
             )
         };
         if sent != plan.len() as u32 {
-            let releases = pending_key_releases(&plan, sent as usize);
+            let releases = pending_key_releases(plan, sent as usize);
             if !releases.is_empty() {
                 // Best effort only: Windows may also reject the cleanup request.
                 unsafe {
@@ -188,9 +208,6 @@ fn keyboard(shortcut: Option<&KeyboardShortcut>) -> ActionOutcome {
             return failure(
                 "Windows blocked keyboard input; elevated apps and secure desktops are not supported",
             );
-        }
-        if repetition + 1 < shortcut.repetitions {
-            thread::sleep(Duration::from_millis(100));
         }
     }
     success("Keyboard request sent; the focused app decides how to handle it")
@@ -343,6 +360,31 @@ fn failure(summary: &str) -> ActionOutcome {
 mod tests {
     use super::*;
     #[test]
+    fn repeated_modifier_taps_have_distinct_complete_releases() {
+        let shortcut = KeyboardShortcut::recorded(vec![
+            KeyboardStep {
+                key: "meta".into(),
+                modifiers: 0,
+                delay_ms: 0,
+            },
+            KeyboardStep {
+                key: "meta".into(),
+                modifiers: 0,
+                delay_ms: 140,
+            },
+        ]);
+        let plan = keyboard_plan(&shortcut).unwrap();
+        assert_eq!(plan.len(), 4);
+        for (index, input) in plan.iter().enumerate() {
+            let key = unsafe { input.Anonymous.ki };
+            assert_eq!(key.wScan, 0x5B);
+            assert_ne!(key.dwFlags & KEYEVENTF_EXTENDEDKEY, 0);
+            assert_eq!(key.dwFlags & KEYEVENTF_KEYUP != 0, index % 2 == 1);
+        }
+        assert!(pending_key_releases(&plan, 2).is_empty());
+        assert_eq!(pending_key_releases(&plan, 3).len(), 1);
+    }
+    #[test]
     fn partial_keyboard_plans_release_only_keys_they_still_hold() {
         let plan = keyboard_plan(&KeyboardShortcut {
             control: true,
@@ -370,7 +412,7 @@ mod tests {
             alt: true,
             shift: true,
             meta: true,
-            repetitions: 2,
+            repetitions: 1,
             ..Default::default()
         };
         let plan = keyboard_plan(&shortcut).unwrap();

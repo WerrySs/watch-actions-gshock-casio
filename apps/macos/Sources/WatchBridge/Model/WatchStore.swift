@@ -45,6 +45,7 @@ final class WatchStore {
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored private let persists: Bool
     private(set) var actionRunning = false
+    var isRecordingKeyboard = false
     private(set) var actionModes = ActionModes()
     var editingLayer: ActionLayer = .normal
     var panelActionLayer: ActionLayer { actionModes.layer(for: panelWatch?.id) }
@@ -53,7 +54,9 @@ final class WatchStore {
         central = WatchCentral(enabled: bluetooth)
         persists = bluetooth
         if bluetooth {
-            config = Persistence.load(ActionsConfig.self, from: "config.json") ?? ActionsConfig()
+            // Keep the legacy file untouched for safe rollback. Never fall back after a read failure.
+            if let saved = Persistence.load(ActionsConfig.self, from: "config-v2.json") { config = saved }
+            else if storageWarning == nil { config = Persistence.load(ActionsConfig.self, from: "config.json") ?? ActionsConfig() }
             legacyPendingCount = (Persistence.load([PendingChange].self, from: "pending.json") ?? []).count
             pendingQueue = Persistence.load(PendingQueue.self, from: "pending-by-watch-v2.json") ?? PendingQueue()
             log = Persistence.load([LogEntry].self, from: "log.json") ?? []
@@ -324,7 +327,10 @@ final class WatchStore {
         guard storageWarning == nil, event != .unknown else { return }
         var action = action
         action.value = RustCore.sanitize(action.value, limit: 500)
-        if layer == .alternate && event != .auto { config.alternateActions[event] = action }
+        if case .profile(let id) = layer, event != .auto {
+            guard let index = config.profiles.firstIndex(where: { $0.id == id }) else { return }
+            config.profiles[index].actions[event] = action
+        }
         else { config.actions[event] = action }
         persistConfig()
     }
@@ -338,13 +344,37 @@ final class WatchStore {
 
     func resetActionModes() { actionModes.reset(); showNotice("All watches are back in Normal mode.") }
 
+    func addMode(named name: String) {
+        guard storageWarning == nil, let layer = config.addProfile(named: name) else { return }
+        editingLayer = layer; actionModes.reset(); persistConfig()
+    }
+    func updateMode(_ layer: ActionLayer, name: String, color: String) {
+        guard storageWarning == nil, let index = config.profiles.firstIndex(where: { $0.id == layer.id }), ActionsConfig.colors.contains(color) else { return }
+        let name = RustCore.sanitize(name, limit: 40)
+        guard !name.isEmpty else { return }
+        config.profiles[index].name = name; config.profiles[index].color = color; persistConfig()
+    }
+    func deleteMode(_ layer: ActionLayer) {
+        guard storageWarning == nil, layer != .normal else { return }
+        config.profiles.removeAll { $0.id == layer.id }
+        if editingLayer == layer { editingLayer = .normal }
+        actionModes.reset(); persistConfig()
+    }
+    func moveMode(_ layer: ActionLayer, by offset: Int) {
+        guard storageWarning == nil, abs(offset) == 1, let index = config.profiles.firstIndex(where: { $0.id == layer.id }), config.profiles.indices.contains(index + offset) else { return }
+        config.profiles.swapAt(index, index + offset); actionModes.reset(); persistConfig()
+    }
+    func setModeIndicator(_ enabled: Bool) {
+        guard storageWarning == nil else { return }; config.showModeIndicator = enabled; persistConfig()
+    }
+
     private func handleActionEvent(_ event: WatchButtonEvent) {
-        guard storageWarning == nil, !actionRunning, let watch = currentWatch else { return }
+        guard storageWarning == nil, !actionRunning, !isRecordingKeyboard, let watch = currentWatch else { return }
         switch actionModes.resolve(config: config, id: watch.id, event: event, authorized: watch.canRunMacActions) {
         case .ignored: addTrace("Blocked gesture: this physical watch is not trusted to control the Mac")
         case .switched(let layer):
-            addTrace("\(event.display): switched to \(layer.title) mode")
-            showNotice("\(watch.title) · \(layer.title) mode")
+            addTrace("\(event.display): switched action mode")
+            showNotice("\(watch.title) · \(config.name(for: layer)) mode")
         case .action(let action): runAction(action, for: event)
         }
     }
@@ -366,7 +396,7 @@ final class WatchStore {
     }
 
     private func runAction(_ action: WatchAction, for event: WatchButtonEvent, manual: Bool = false) {
-        guard storageWarning == nil, action.kind != .none, event != .unknown, !actionRunning else { return }
+        guard storageWarning == nil, action.kind != .none, event != .unknown, !actionRunning, !isRecordingKeyboard else { return }
         actionRunning = true
         // Persistent history never includes URLs, phrases, app names, or other configured values.
         addTrace("Action for \(event.display): \(action.kind.label)")
@@ -518,7 +548,7 @@ final class WatchStore {
     }
 
     private func persistPending() { if persists { Persistence.save(pendingQueue, as: "pending-by-watch-v2.json") } }
-    private func persistConfig() { if persists { Persistence.save(config, as: "config.json") } }
+    private func persistConfig() { if persists { Persistence.save(config, as: "config-v2.json") } }
 
     private func rememberWatch(identifier: UUID, name: String) {
         let id = identifier.uuidString

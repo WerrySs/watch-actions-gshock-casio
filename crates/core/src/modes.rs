@@ -1,18 +1,25 @@
 //! Session-only action layers; never persisted or transferred between physical watches.
 use crate::model::{ActionsConfig, WatchAction, WatchButtonEvent};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ActionLayer {
     #[default]
     Normal,
-    Alternate,
+    Profile(u32),
 }
 impl ActionLayer {
-    pub fn title(self) -> &'static str {
+    pub fn id(self) -> u32 {
         match self {
-            Self::Normal => "Normal",
-            Self::Alternate => "Alternate",
+            Self::Normal => 0,
+            Self::Profile(id) => id,
+        }
+    }
+    pub fn from_id(id: u32) -> Self {
+        if id == 0 {
+            Self::Normal
+        } else {
+            Self::Profile(id)
         }
     }
 }
@@ -26,21 +33,17 @@ pub enum ActionResolution {
 
 #[derive(Debug, Default, Clone)]
 pub struct ActionModes {
-    alternate: BTreeSet<String>,
+    active: BTreeMap<String, ActionLayer>,
 }
 impl ActionModes {
     pub fn layer(&self, id: &str) -> ActionLayer {
-        if self.alternate.contains(id) {
-            ActionLayer::Alternate
-        } else {
-            ActionLayer::Normal
-        }
+        self.active.get(id).copied().unwrap_or_default()
     }
     pub fn reset(&mut self) {
-        self.alternate.clear();
+        self.active.clear();
     }
     pub fn forget(&mut self, id: &str) {
-        self.alternate.remove(id);
+        self.active.remove(id);
     }
     pub fn resolve(
         &mut self,
@@ -57,13 +60,16 @@ impl ActionModes {
             return ActionResolution::Ignored;
         }
         if event != WatchButtonEvent::Automatic && config.switch_event == Some(event) {
-            if !self.alternate.remove(id) {
-                if self.alternate.len() >= 100 {
+            let next = config.next_layer(self.layer(id));
+            if next == ActionLayer::Normal {
+                self.active.remove(id);
+            } else {
+                if !self.active.contains_key(id) && self.active.len() >= 100 {
                     return ActionResolution::Ignored;
                 }
-                self.alternate.insert(id.to_owned());
+                self.active.insert(id.to_owned(), next);
             }
-            return ActionResolution::Switched(self.layer(id));
+            return ActionResolution::Switched(next);
         }
         ActionResolution::Action(config.action_in_layer(event, self.layer(id)))
     }
@@ -74,10 +80,66 @@ mod tests {
     use super::*;
     use crate::model::ActionKind;
     #[test]
+    fn named_modes_cycle_in_order_without_crossing_watches_or_actions() {
+        let mut config = ActionsConfig {
+            switch_event: Some(WatchButtonEvent::Find),
+            ..Default::default()
+        };
+        let music = config.add_profile("Music").unwrap();
+        let slides = config.add_profile("Presentation").unwrap();
+        config.actions_mut(music).unwrap().insert(
+            WatchButtonEvent::Time,
+            WatchAction::new(ActionKind::PlayPause),
+        );
+        let mut modes = ActionModes::default();
+        for expected in [ActionLayer::Profile(1), music, slides, ActionLayer::Normal] {
+            assert_eq!(
+                modes.resolve(&config, "A", WatchButtonEvent::Find, true),
+                ActionResolution::Switched(expected)
+            );
+            assert_eq!(modes.layer("B"), ActionLayer::Normal);
+            assert_eq!(
+                modes.resolve(&config, "A", WatchButtonEvent::Automatic, true),
+                ActionResolution::Action(config.action(WatchButtonEvent::Automatic))
+            );
+        }
+        config.profiles.swap(0, 2);
+        assert_eq!(config.next_layer(ActionLayer::Normal), slides);
+        assert_eq!(
+            config.action_in_layer(WatchButtonEvent::Time, music).kind,
+            ActionKind::PlayPause
+        );
+        config.profiles.retain(|p| p.id != music.id());
+        assert!(config.actions_mut(music).is_none());
+        assert_eq!(config.next_layer(music), ActionLayer::Normal);
+        assert_eq!(
+            config.action_in_layer(WatchButtonEvent::Time, music),
+            WatchAction::default()
+        );
+    }
+    #[test]
+    fn legacy_alternate_migrates_with_its_actions_and_mode_limit_is_bounded() {
+        let mut config = ActionsConfig::default();
+        config.profiles[0].actions.insert(
+            WatchButtonEvent::Time,
+            WatchAction::new(ActionKind::PlayPause),
+        );
+        let mut old = serde_json::to_value(&config).unwrap();
+        old["alternate_actions"] = old["profiles"][0]["actions"].clone();
+        old.as_object_mut().unwrap().remove("profiles");
+        let restored: ActionsConfig = serde_json::from_value(old).unwrap();
+        assert_eq!(restored, config);
+        for _ in 1..100 {
+            assert!(config.add_profile("Mode").is_some());
+        }
+        assert!(config.add_profile("Too many").is_none());
+    }
+    #[test]
     fn old_configuration_keeps_actions_and_new_fields_round_trip() {
         let config = ActionsConfig::default();
         let mut old = serde_json::to_value(&config).unwrap();
         old.as_object_mut().unwrap().remove("alternate_actions");
+        old.as_object_mut().unwrap().remove("profiles");
         old.as_object_mut().unwrap().remove("switch_event");
         for action in old["actions"].as_object_mut().unwrap().values_mut() {
             action.as_object_mut().unwrap().remove("keyboard");
@@ -86,7 +148,7 @@ mod tests {
         assert_eq!(restored, config);
         let mut updated = config;
         updated.switch_event = Some(WatchButtonEvent::Find);
-        updated.alternate_actions.insert(
+        updated.profiles[0].actions.insert(
             WatchButtonEvent::Time,
             WatchAction::new(ActionKind::Keyboard),
         );
@@ -99,12 +161,12 @@ mod tests {
     #[test]
     fn automatic_actions_ignore_the_alternate_configuration() {
         let mut config = ActionsConfig::default();
-        config.alternate_actions.insert(
+        config.profiles[0].actions.insert(
             WatchButtonEvent::Automatic,
             WatchAction::new(ActionKind::Keyboard),
         );
         assert_eq!(
-            config.action_in_layer(WatchButtonEvent::Automatic, ActionLayer::Alternate),
+            config.action_in_layer(WatchButtonEvent::Automatic, ActionLayer::Profile(1)),
             config.action(WatchButtonEvent::Automatic)
         );
     }
@@ -113,13 +175,13 @@ mod tests {
         let mut data = crate::model::AppData::default();
         let mut action = WatchAction::new(ActionKind::Keyboard);
         action.keyboard.as_mut().unwrap().repetitions = 0;
-        data.actions
-            .alternate_actions
+        data.actions.profiles[0]
+            .actions
             .insert(WatchButtonEvent::Time, action);
         data.trim_for_storage();
         assert_eq!(
             data.actions
-                .action_in_layer(WatchButtonEvent::Time, ActionLayer::Alternate),
+                .action_in_layer(WatchButtonEvent::Time, ActionLayer::Profile(1)),
             WatchAction::default()
         );
     }
@@ -129,7 +191,7 @@ mod tests {
             switch_event: Some(WatchButtonEvent::Find),
             ..Default::default()
         };
-        config.alternate_actions.insert(
+        config.profiles[0].actions.insert(
             WatchButtonEvent::Time,
             WatchAction::new(ActionKind::Keyboard),
         );
@@ -140,7 +202,7 @@ mod tests {
         );
         assert_eq!(
             modes.resolve(&config, "A", WatchButtonEvent::Find, true),
-            ActionResolution::Switched(ActionLayer::Alternate)
+            ActionResolution::Switched(ActionLayer::Profile(1))
         );
         assert_eq!(modes.layer("B"), ActionLayer::Normal);
         assert_eq!(
