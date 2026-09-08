@@ -1,4 +1,4 @@
-import { AboutSlint, Button, CheckBox, ComboBox, HorizontalBox, LineEdit, ScrollView, SpinBox, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, ComboBox, HorizontalBox, LineEdit, Palette, ScrollView, SpinBox, VerticalBox } from "std-widgets.slint";
 
 export struct KeyCap { id: string, label: string }
 
@@ -360,6 +360,8 @@ component DataListCard inherits Rectangle {
 }
 
 export component MainWindow inherits Window {
+    // The custom surfaces are dark; system light widgets would make labels unreadable.
+    init => { Palette.color-scheme = ColorScheme.dark; }
     title: "WatchBridge";
     preferred-width: 1240px;
     preferred-height: 780px;

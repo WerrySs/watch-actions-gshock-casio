@@ -26,6 +26,7 @@ All notable changes are documented here. This project follows Semantic Versionin
 - Keep Dashboard, button sheets and action editors consistent about the active versus edited layer; identify AUTO as Normal-only.
 - Initialize Windows keyboard rows once instead of rebuilding the key grid on state refresh.
 - Give the conditional Windows main layout explicit bounds, equal-width gesture cards and bounded Test buttons; keep key labels and keyboard-editor buttons inside the panel.
+- Match Windows widget colors to the app's dark surfaces even when the operating system uses a light theme, preserving keyboard-modifier label contrast.
 - Bind pending changes to physical watch IDs, preserve edits made while an older value is in flight, and quarantine legacy global queues.
 - Reject unknown Bluetooth reasons instead of treating them as TIME gestures.
 - Protect unreadable/newer local state from default-state overwrites; pause writes after save failures.

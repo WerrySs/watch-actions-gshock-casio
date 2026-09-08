@@ -32,6 +32,8 @@ The action-layer review adds a sample-data Slint renderer with no state loading,
 
 The first hosted capture attempt (CI 34202387610) failed after native tests and packaging, without renderer diagnostics from the GUI process. The workflow now captures sample-process stderr and builds an optional `software-preview` fixture tool, selecting Slint's CPU renderer for reproducible layout inspection without a hosted GPU requirement. Production archives are built/uploaded before that feature is enabled and keep their renderer unchanged. Do not use CPU captures to claim that the failed GPU path, interactive scaling or end-user GPU behavior was validated.
 
+The native CPU fixtures in CI 34203617517 revealed a real system-theme mismatch: the app's custom surfaces are dark, but system-light widget labels could be black on dark backgrounds. MainWindow now selects the dark widget palette explicitly. CPU-only previews also show a thin diagonal gradient rasterization seam; local production-renderer captures do not show it. This known fixture artifact is not retouched, and CPU previews are not used as Windows promotional screenshots or GPU acceptance evidence.
+
 ## Interactive checks still required
 
 On physical macOS and Windows installations:
