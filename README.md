@@ -2,7 +2,7 @@
 
 **Supported watch gestures, useful computer actions, local data.**
 
-[Download beta](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-3) · [CI builds](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) · [Compatibility](docs/COMPATIBILITY.md) · [Contribute](CONTRIBUTING.md) · [References](docs/REFERENCES.md)
+[Download beta](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-4) · [CI builds](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) · [Compatibility](docs/COMPATIBILITY.md) · [Contribute](CONTRIBUTING.md) · [References](docs/REFERENCES.md)
 
 WatchBridge connects supported Bluetooth watch gestures to actions on macOS and Windows. The application is called **WatchBridge**; the repository name describes the intended hardware.
 
@@ -18,14 +18,14 @@ WatchBridge connects supported Bluetooth watch gestures to actions on macOS and 
 
 ## Download the app
 
-**[WatchBridge 0.1.0 Beta 3 · macOS & Windows](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-3)** — experimental downloads, published September 7, 2026.
+**[WatchBridge 0.1.0 Beta 4 · macOS & Windows](https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-4)** — experimental downloads, published September 8, 2026. Includes keyboard recording, named action modes and the optional macOS mode indicator.
 
 | Computer | Package | Installation |
 | --- | --- | --- |
-| macOS 14+, Apple silicon or Intel | [Download DMG](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-macOS-universal.dmg) · [ZIP](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-macOS-universal.zip) | Copy WatchBridge.app to Applications |
-| Windows x64 | [Download ZIP](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-Windows-x64.zip) | Extract the entire archive, then run WatchBridge.exe |
+| macOS 14+, Apple silicon or Intel | [Download DMG](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-4/WatchBridge-v0.1.0-macOS-universal.dmg) · [ZIP](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-4/WatchBridge-v0.1.0-macOS-universal.zip) | Copy WatchBridge.app to Applications |
+| Windows x64 | [Download ZIP](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-4/WatchBridge-v0.1.0-Windows-x64.zip) | Extract the entire archive, then run WatchBridge.exe |
 
-Verify your download with the [macOS SHA-256 checksums](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-macOS.sha256) or [Windows SHA-256 checksum](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-3/WatchBridge-v0.1.0-Windows-x64.sha256). Review the release notes and [installation guidance](docs/INSTALLATION.md) first. Browse [all releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) for other versions. If there is no release for a commit yet, each successful [CI run](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) provides macOS and Windows review archives under **Artifacts**, retained for 14 days.
+Verify your download with the [macOS SHA-256 checksums](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-4/WatchBridge-v0.1.0-macOS.sha256) or [Windows SHA-256 checksum](https://github.com/WerrySs/watch-actions-gshock-casio/releases/download/beta-v0.1.0-4/WatchBridge-v0.1.0-Windows-x64.sha256). Review the release notes and [installation guidance](docs/INSTALLATION.md) first. Browse [all releases](https://github.com/WerrySs/watch-actions-gshock-casio/releases) for other versions. Work in progress is available in successful [CI runs](https://github.com/WerrySs/watch-actions-gshock-casio/actions/workflows/ci.yml) under **Artifacts**, retained for 14 days. Completed change batches receive a named release after the checks pass.
 
 Windows 11 is the intended Mica experience. Windows 10 has a fallback appearance and needs separate acceptance testing. ARM64 Windows binaries and Linux are not distributed. Release downloads do not require a GitHub account; CI artifact downloads require signing in.
 
@@ -49,16 +49,16 @@ These are short connection sessions, not continuous keyboard-like button events.
 | Saved watches, favorite and offline snapshots | Yes | Yes |
 | Explicit physical-watch association and action trust | Yes | Yes |
 | Connection history and action configuration | Yes | Yes |
-| Named action modes, colors and a watch-button cycle | Development builds | Development builds |
-| Local shortcut recorder, modifier-only taps and sequences | Development builds | Development builds |
-| Optional floating active-mode indicator | Development builds | Not applicable |
+| Named action modes, colors and a watch-button cycle | Beta 4 | Beta 4 |
+| Local shortcut recorder, modifier-only taps and sequences | Beta 4 | Beta 4 |
+| Optional floating active-mode indicator | Beta 4 | Not applicable |
 | Local, metadata-free user watch photos | Yes | Not yet |
 | Reminder, alarm and settings editors | Yes | Cached read-only views; editor parity pending |
 | Shortcuts integration | macOS Shortcuts | Not yet |
 
 Slint is not WinUI: both clients are compiled desktop apps, but their controls and feature sets are not identical. Their local JSON formats are also different; copying state files between platforms is not supported. See [Architecture](docs/ARCHITECTURE.md).
 
-**New in development:** record shortcuts such as **⌘ → ⌘** or **Right twice**, then create named, colored modes for Presentation, Music and other tasks. A reserved watch gesture cycles through your modes; each trusted physical watch keeps its own session mode. macOS also has an optional black, click-through mode indicator below the menu bar, independent of notch geometry. See [Action modes and recording](docs/ACTION_LAYERS.md) for setup, limits and safety. These additions are **not in the Beta 3 download above**; successful CI runs provide updated review apps.
+**New in Beta 4:** record shortcuts such as **⌘ → ⌘** or **Right twice**, then create named, colored modes for Presentation, Music and other tasks. A reserved watch gesture cycles through your modes; each trusted physical watch keeps its own session mode. macOS also has an optional black, click-through mode indicator below the menu bar, independent of notch geometry. See [Action modes and recording](docs/ACTION_LAYERS.md) for setup, limits, upgrade backups and safe testing. These additions are included in both Beta 4 downloads where applicable; real-target keyboard and physical-watch acceptance remain pending.
 
 ### Language and Dashboard controls
 
@@ -71,7 +71,7 @@ On macOS, click the watch name to choose the Dashboard watch or follow the most 
 <details>
 <summary>Actions — named modes and aligned gesture cards</summary>
 
-Create and reorder named modes, recognize the active mode by its name and color, and configure each supported gesture. The button guide explains A, B, C and D. The development preview reserves FIND for mode cycling. Test buttons are manual actions; physical watches require explicit trust.
+Create and reorder named modes, recognize the active mode by its name and color, and configure each supported gesture. The button guide explains A, B, C and D. The sample-data preview reserves FIND for mode cycling. Test buttons are manual actions; physical watches require explicit trust.
 
 ![Full-page macOS Actions preview with sidebar, named mode cards and four aligned gestures](docs/screenshots/actions.png)
 

@@ -1,8 +1,14 @@
 # Changelog
 
-All notable changes are documented here. This project follows Semantic Versioning once releases begin.
+All notable changes are documented here. App versions use Semantic Versioning; experimental builds also have uniquely numbered beta tags.
 
 ## [Unreleased]
+
+No unreleased application changes.
+
+## [0.1.0 Beta 4] - 2026-09-08
+
+Experimental macOS universal and Windows x64 downloads, built from `a30233ab15c26bb6381a4b0a3de7c06267e9268b` after PRs #5 and #6. Publisher signing and physical/interactive acceptance remain pending.
 
 ### Added
 
@@ -11,6 +17,30 @@ All notable changes are documented here. This project follows Semantic Versionin
 - Optional black, click-through macOS mode indicator below the menu bar, compatible with notched and conventional displays, plus mode-colored menu-bar symbols.
 - Native keyboard emission with Accessibility checks on macOS and non-elevated SendInput on Windows, foreground/held-key guards and a three-second manual-test delay.
 - Regression tests for old action settings, layer isolation/trust/AUTO behavior, bounded keyboard requests and native key-release plans.
+
+### Fixed
+
+- Place macOS target/protection banners inside the detail layout, above page content, instead of over navigation and headings.
+- Fade the Dashboard watch halo to transparent inside its bounds, removing clipped glow edges and the oversized blur.
+- Keep Dashboard, button sheets and action editors consistent about the active versus edited layer; identify AUTO as Normal-only.
+- Initialize the Windows manual-key catalog once instead of rebuilding it on state refresh.
+- Give the conditional Windows main layout explicit bounds, equal-width gesture cards and bounded Test buttons; keep key labels and keyboard-editor buttons inside the panel.
+- Match Windows widget colors to the app's dark surfaces even when the operating system uses a light theme, preserving keyboard-modifier label contrast.
+
+### Distribution
+
+- Preserve legacy Normal/Alternate and keyboard settings on upgrade. Windows schema 4 blocks older writers; macOS writes config-v2.json while retaining config.json. Back up the complete app-data folder before upgrading.
+- Include keyboard, layer and settings-banner sample-data previews in PR CI artifacts for visual review.
+- Render Windows client-area fixtures at default/minimum sizes without BLE or action callbacks, reject blank output, and refresh the inspected macOS README images.
+- Use an optional CPU-rendered fixture build for hosted Windows visual checks, with captured process diagnostics and dependency-policy coverage; downloadable apps retain their production renderer.
+- Publish named releases with verified native downloads for completed change batches; maintain exact-version README links and accurate feature availability as part of the release follow-up.
+
+## [0.1.0 Beta 3] - 2026-09-07
+
+Initial public experimental downloads for macOS universal and Windows x64.
+
+### Added
+
 - Native translucent macOS client built with SwiftUI and AppKit.
 - Native Windows client built with Rust, Slint, and Windows Mica.
 - Shared Rust protocol, validation, history, and bounded persistence core.
@@ -22,12 +52,6 @@ All notable changes are documented here. This project follows Semantic Versionin
 
 ### Fixed
 
-- Place macOS target/protection banners inside the detail layout, above page content, instead of over navigation and headings.
-- Fade the Dashboard watch halo to transparent inside its bounds, removing clipped glow edges and the oversized blur.
-- Keep Dashboard, button sheets and action editors consistent about the active versus edited layer; identify AUTO as Normal-only.
-- Initialize the Windows manual-key catalog once instead of rebuilding it on state refresh.
-- Give the conditional Windows main layout explicit bounds, equal-width gesture cards and bounded Test buttons; keep key labels and keyboard-editor buttons inside the panel.
-- Match Windows widget colors to the app's dark surfaces even when the operating system uses a light theme, preserving keyboard-modifier label contrast.
 - Bind pending changes to physical watch IDs, preserve edits made while an older value is in flight, and quarantine legacy global queues.
 - Reject unknown Bluetooth reasons instead of treating them as TIME gestures.
 - Protect unreadable/newer local state from default-state overwrites; pause writes after save failures.
@@ -39,10 +63,6 @@ All notable changes are documented here. This project follows Semantic Versionin
 
 ### Distribution
 
-- Preserve legacy Normal/Alternate and keyboard settings on upgrade. Windows schema 4 blocks older writers; macOS writes config-v2.json while retaining config.json. These changes are in CI review builds, not the existing Beta 3 packages.
-- Include keyboard, layer and settings-banner sample-data previews in PR CI artifacts for visual review.
-- Render Windows client-area fixtures at default/minimum sizes without BLE or action callbacks, reject blank output, and refresh the inspected macOS README images.
-- Use an optional CPU-rendered fixture build for hosted Windows visual checks, with captured process diagnostics and dependency-policy coverage; downloadable apps retain their production renderer.
 - Rename the private repository to `WerrySs/watch-actions-gshock-casio`; retain the independent WatchBridge app name.
 - Attach universal macOS and Windows x64 downloads to CI; support labeled experimental beta releases with an explicit opt-in for public preview publishing.
 - Scan complete Git history with a checksum-pinned Gitleaks binary and redact scanner output; aggregate native and dependency jobs in one required CI check for every PR.
@@ -51,4 +71,6 @@ All notable changes are documented here. This project follows Semantic Versionin
 - Add installation, compatibility evidence, primary references and contribution guidance.
 - Stable distribution still requires publisher certificates and real-device validation; previews are not hardware certification.
 
-[Unreleased]: https://github.com/WerrySs/watch-actions-gshock-casio/commits/main
+[Unreleased]: https://github.com/WerrySs/watch-actions-gshock-casio/compare/beta-v0.1.0-4...main
+[0.1.0 Beta 4]: https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-4
+[0.1.0 Beta 3]: https://github.com/WerrySs/watch-actions-gshock-casio/releases/tag/beta-v0.1.0-3
