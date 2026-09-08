@@ -44,6 +44,8 @@ Local minimum-size recorder, expanded manual, mode-card and name/color renders w
 
 Native Windows CPU fixtures from CI 34215691461 were inspected at both sizes: recorder controls, mode editing and both equal-height card rows fit. The expanded manual editor's footer is inside its panel. Follow-up changes make its sequence rows denser so two taps fit without partial clipping, update the reserved-gesture help to describe a multi-mode cycle, and retarget the sample scroll offsets to the taller mode section. The documented CPU gradient seam remains a fixture limitation, not a retouched image or a GPU acceptance pass.
 
+CI 34216910855 passed automated checks and showed the denser manual rows correctly. Visual inspection nevertheless caught an overflow in the longer cycle-help text: its conditional Slint Text had no explicit width. The follow-up constrains that text to the reserved card region, with wrapping and a bounded fallback, and requires another native preview review before merge.
+
 ### Interactive checks still required
 
 On physical macOS and Windows installations:

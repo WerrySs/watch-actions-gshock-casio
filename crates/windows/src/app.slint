@@ -234,7 +234,9 @@ component ActionCard inherits Rectangle {
             height: 60px;
             background: transparent;
             if root.action-row.is-switch : Text {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
                 text: "The saved computer action is paused. Repeat this gesture to cycle through your modes and return to Normal."; wrap: word-wrap; color: #aeb8c7; font-size: 12px;
+                overflow: elide; vertical-alignment: center;
             }
             if root.action-row.is-keyboard && !root.action-row.is-switch : VerticalBox {
                 padding: 0px; spacing: 5px;
