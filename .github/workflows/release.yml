@@ -195,7 +195,7 @@ jobs:
           spctl --assess --type execute --verbose=2 "$app"
           echo "notarized=true" >> "$GITHUB_OUTPUT"
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: watchbridge-macos-${{ needs.metadata.outputs.version }}
           path: |
@@ -294,7 +294,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("dist/windows/WatchBridge-v$env:VERSION-Windows-x64.sha256", "$hash  $(Split-Path -Leaf $archive)`n", [Text.UTF8Encoding]::new($false))
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: watchbridge-windows-${{ needs.metadata.outputs.version }}
           path: |
