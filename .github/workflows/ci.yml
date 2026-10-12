@@ -85,7 +85,7 @@ jobs:
           lipo dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge -verify_arch arm64 x86_64
           dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --smoke-test
       - name: Upload macOS review downloads
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WatchBridge-macOS-universal-review
           path: |
@@ -110,7 +110,7 @@ jobs:
           dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/keyboard-manual" --only keyboard --manual-key
           dist/macos/WatchBridge.app/Contents/MacOS/WatchBridge --snapshot "$RUNNER_TEMP/watchbridge-previews/mode-indicator" --only indicator
       - name: Upload documentation previews for visual review
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WatchBridge-macOS-documentation-previews
           path: ${{ runner.temp }}/watchbridge-previews/**/*.png
@@ -164,7 +164,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("dist/windows/WatchBridge-v$version-Windows-x64.sha256", "$hash  $(Split-Path -Leaf $archive)`n", [Text.UTF8Encoding]::new($false))
       - name: Upload Windows review downloads
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WatchBridge-Windows-x64-review
           path: |
@@ -206,7 +206,7 @@ jobs:
             }
           }
       - name: Upload Windows layout previews for visual review
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WatchBridge-Windows-layout-previews
           path: ${{ runner.temp }}/watchbridge-windows-previews/*.png
